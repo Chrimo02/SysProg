@@ -1,0 +1,2 @@
+source /Users/christian/git/embedded/esp/speaker/build/gdbinit/symbols
+source /Users/christian/git/embedded/esp/speaker/build/gdbinit/connect
