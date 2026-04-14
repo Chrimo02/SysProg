@@ -20,6 +20,14 @@
 #define A4  440
 #define REST 0
 
+#define B4  494
+#define C5  523
+#define D5  587
+#define E5  659
+#define F5  698
+#define G5  784
+#define A5  880
+
 static esp_timer_handle_t toggle_timer;
 static esp_timer_handle_t stop_timer;
 
@@ -54,7 +62,7 @@ typedef struct {
 
 // Al-le  mei-ne  Ent-chen  |  schwim-men  auf  dem  See  (x2)
 // Köpf-chen  in  das  Was-ser  |  Schwänz-chen  in  die  Höh
-static const Note melody[] = {
+/* static const Note melody[] = {
     {C4, 300}, {D4, 300}, {E4, 300}, {F4, 300},
     {G4, 450}, {REST, 150}, {G4, 450}, {REST, 150},
     {A4, 300}, {A4, 300}, {A4, 300}, {A4, 300}, {G4, 600}, {REST, 150},
@@ -62,6 +70,26 @@ static const Note melody[] = {
     {F4, 300}, {F4, 300}, {F4, 300}, {F4, 300},
     {E4, 450}, {REST, 150}, {E4, 450}, {REST, 150},
     {G4, 300}, {G4, 300}, {G4, 300}, {G4, 300}, {C4, 600},
+}; */
+
+static const Note melody[] = {
+    // Phrase A
+    {E5, 400}, {B4, 200}, {C5, 200}, {D5, 400}, {C5, 200}, {B4, 200},
+    {A4, 400}, {A4, 200}, {C5, 200}, {E5, 400}, {D5, 200}, {C5, 200},
+    {B4, 600}, {C5, 200}, {D5, 400}, {E5, 400},
+    {C5, 400}, {A4, 400}, {A4, 600}, {REST, 200},
+
+    // Phrase B
+    {D5, 400}, {F5, 200}, {A5, 400}, {G5, 200}, {F5, 200},
+    {E5, 600}, {C5, 200}, {E5, 400}, {D5, 200}, {C5, 200},
+    {B4, 400}, {B4, 200}, {C5, 200}, {D5, 400}, {E5, 400},
+    {C5, 400}, {A4, 400}, {A4, 400}, {REST, 200},
+
+    // Phrase A wiederholt
+    {E5, 400}, {B4, 200}, {C5, 200}, {D5, 400}, {C5, 200}, {B4, 200},
+    {A4, 400}, {A4, 200}, {C5, 200}, {E5, 400}, {D5, 200}, {C5, 200},
+    {B4, 600}, {C5, 200}, {D5, 400}, {E5, 400},
+    {C5, 400}, {A4, 400}, {A4, 600}, {REST, 200},
 };
 
 #define NOTE_COUNT (sizeof(melody) / sizeof(melody[0]))
@@ -106,3 +134,4 @@ void app_main(void) {
     // erste Note sofort starten
     esp_timer_start_once(melody_timer, 0);
 }
+
