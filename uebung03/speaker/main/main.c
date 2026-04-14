@@ -3,11 +3,11 @@
 #define GPIO_BASE       0x60004000UL
 #define IO_MUX_BASE     0x60009000UL
 
-#define GPIO_W1TS       (*(volatile uint32_t*)(GPIO_BASE + 0x008))
-#define GPIO_W1TC       (*(volatile uint32_t*)(GPIO_BASE + 0x00C))
-#define GPIO_EN_W1TS    (*(volatile uint32_t*)(GPIO_BASE + 0x024))
-#define IO_MUX_GPIO18   (*(volatile uint32_t*)(IO_MUX_BASE + 0x4C))
-#define GPIO_FUNC18_OUT (*(volatile uint32_t*)(GPIO_BASE + 0x554 + 18*4))
+#define GPIO_W1TS       (*( uint32_t*)(GPIO_BASE + 0x008))
+#define GPIO_W1TC       (*( uint32_t*)(GPIO_BASE + 0x00C))
+#define GPIO_EN_W1TS    (*( uint32_t*)(GPIO_BASE + 0x024))
+#define IO_MUX_GPIO18   (*( uint32_t*)(IO_MUX_BASE + 0x4C))
+#define GPIO_FUNC18_OUT (*( uint32_t*)(GPIO_BASE + 0x554 + 18*4))
 
 #define PIN (1u << 18)
 
