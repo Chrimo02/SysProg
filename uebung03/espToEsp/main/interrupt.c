@@ -13,7 +13,7 @@
 #define BUF_SIZE        256
 
 #define LED_GPIO        2
-#define BUTTON_GPIO     15
+#define BUTTON_GPIO     17
 
 // Queue für UART-Events – der UART-Treiber schreibt hier rein
 // wenn etwas passiert (z.B. Daten empfangen, Fehler, etc.)
@@ -65,7 +65,7 @@ static void button_tx_task(void *arg)
         int current_state = gpio_get_level(BUTTON_GPIO);
 
         if (current_state != last_state) {
-            vTaskDelay(pdMS_TO_TICKS(20));           // Entprellung
+            vTaskDelay(pdMS_TO_TICKS(200));           // Entprellung
             current_state = gpio_get_level(BUTTON_GPIO);
 
             if (current_state != last_state) {
