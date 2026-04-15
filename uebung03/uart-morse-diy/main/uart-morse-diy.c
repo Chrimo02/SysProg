@@ -5,7 +5,7 @@
 #include "freertos/queue.h"
 #include "driver/uart.h"
 #include "driver/gpio.h"
-#include "driver/ledc.h"   // LEDC = LED PWM Controller, nutzen wir für Tonerzeugung
+#include "driver/ledc.h"
 
 #define UART_NUM        UART_NUM_0
 #define UART_TX_PIN     4
@@ -15,30 +15,14 @@
 
 #define LED_GPIO        2
 #define BUTTON_GPIO     17
-#define BUZZER_GPIO     21   // Passiver Buzzer/Lautsprecher an GPIO21
+#define BUZZER_GPIO     21
 
-// LEDC Konfiguration für den Buzzer
-#define BUZZER_CHANNEL  LEDC_CHANNEL_0  // Einer von 8 verfügbaren PWM-Kanälen
-#define BUZZER_TIMER    LEDC_TIMER_0    // Einer von 4 verfügbaren Timern
-#define BUZZER_FREQ     1000            // 1000 Hz = hörbarer Ton (A5 wäre 880Hz)
-#define BUZZER_RES      LEDC_TIMER_10_BIT // 10-bit Auflösung → 0-1023 für Duty Cycle
+#define BUZZER_CHANNEL  LEDC_CHANNEL_0
+#define BUZZER_TIMER    LEDC_TIMER_0
+#define BUZZER_FREQ     1000
+#define BUZZER_RES      LEDC_TIMER_10_BIT
 
 static QueueHandle_t uart_event_queue;
-
-// Buzzer für eine bestimmte Dauer einschalten, dann wieder aus
-static void buzzer_beep(uint32_t duration_ms)
-{
-    // Duty Cycle auf 50% setzen → 512 bei 10-bit (1023/2 ≈ 512)
-    // 50% Duty Cycle = lautester Ton bei PWM-Buzzern
-    ledc_set_duty(LEDC_LOW_SPEED_MODE, BUZZER_CHANNEL, 512);
-    ledc_update_duty(LEDC_LOW_SPEED_MODE, BUZZER_CHANNEL); // Änderung anwenden
-
-    vTaskDelay(pdMS_TO_TICKS(duration_ms)); // Ton so lange halten
-
-    // Duty Cycle auf 0 → kein Signal → Ton aus
-    ledc_set_duty(LEDC_LOW_SPEED_MODE, BUZZER_CHANNEL, 0);
-    ledc_update_duty(LEDC_LOW_SPEED_MODE, BUZZER_CHANNEL);
-}
 
 static void uart_rx_task(void *arg)
 {
@@ -52,11 +36,13 @@ static void uart_rx_task(void *arg)
 
                 for (int i = 0; i < len; i++) {
                     if (data[i] == 'N') {
-                        gpio_set_level(LED_GPIO, 1); // LED an
-                        buzzer_beep(200);            // 200ms Ton beim Einschalten
+                        gpio_set_level(LED_GPIO, 1);
+                        ledc_set_duty(LEDC_LOW_SPEED_MODE, BUZZER_CHANNEL, 512);
+                        ledc_update_duty(LEDC_LOW_SPEED_MODE, BUZZER_CHANNEL);
                     } else if (data[i] == 'F') {
-                        gpio_set_level(LED_GPIO, 0); // LED aus
-                        // kein Ton beim Ausschalten – nur beim Drücken
+                        gpio_set_level(LED_GPIO, 0);
+                        ledc_set_duty(LEDC_LOW_SPEED_MODE, BUZZER_CHANNEL, 0);
+                        ledc_update_duty(LEDC_LOW_SPEED_MODE, BUZZER_CHANNEL);
                     }
                 }
             }
@@ -72,7 +58,7 @@ static void button_tx_task(void *arg)
         int current_state = gpio_get_level(BUTTON_GPIO);
 
         if (current_state != last_state) {
-            vTaskDelay(pdMS_TO_TICKS(200));
+            vTaskDelay(pdMS_TO_TICKS(20));
             current_state = gpio_get_level(BUTTON_GPIO);
 
             if (current_state != last_state) {
@@ -112,26 +98,24 @@ void app_main(void)
     };
     gpio_config(&btn_conf);
 
-    // --- LEDC Timer konfigurieren ---
-    // Der Timer bestimmt die Frequenz des PWM-Signals = die Tonhöhe
+    // --- LEDC Timer ---
     ledc_timer_config_t ledc_timer = {
-        .speed_mode      = LEDC_LOW_SPEED_MODE, // Low-Speed reicht für Audio
+        .speed_mode      = LEDC_LOW_SPEED_MODE,
         .timer_num       = BUZZER_TIMER,
-        .duty_resolution = BUZZER_RES,          // 10-bit Auflösung
-        .freq_hz         = BUZZER_FREQ,         // 1000 Hz Ton
-        .clk_cfg         = LEDC_AUTO_CLK,       // Taktquelle automatisch wählen
+        .duty_resolution = BUZZER_RES,
+        .freq_hz         = BUZZER_FREQ,
+        .clk_cfg         = LEDC_AUTO_CLK,
     };
     ledc_timer_config(&ledc_timer);
 
-    // --- LEDC Kanal konfigurieren ---
-    // Der Kanal verbindet Timer + GPIO und steuert den Duty Cycle
+    // --- LEDC Kanal ---
     ledc_channel_config_t ledc_channel = {
         .speed_mode = LEDC_LOW_SPEED_MODE,
         .channel    = BUZZER_CHANNEL,
         .timer_sel  = BUZZER_TIMER,
         .intr_type  = LEDC_INTR_DISABLE,
-        .gpio_num   = BUZZER_GPIO,  // PWM-Signal kommt aus diesem Pin
-        .duty       = 0,            // Start mit Duty 0 → Ton aus
+        .gpio_num   = BUZZER_GPIO,
+        .duty       = 0,
         .hpoint     = 0,
     };
     ledc_channel_config(&ledc_channel);
