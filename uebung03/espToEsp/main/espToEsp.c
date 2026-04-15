@@ -6,13 +6,13 @@
 #include "driver/gpio.h"
 
 #define UART_NUM        UART_NUM_0  // UART0 ist mit dem USB-Bridge verbunden
-#define UART_TX_PIN     43          // TXD0 laut Datasheet
-#define UART_RX_PIN     44          // RXD0 laut Datasheet
+#define UART_TX_PIN     4          // TXD0 laut Datasheet
+#define UART_RX_PIN     5          // RXD0 laut Datasheet
 #define UART_BAUD_RATE  115200      // Standard-Baudrate
 #define BUF_SIZE        256         // Empfangspuffer in Bytes
 
 #define LED_GPIO        2           // LED an GPIO2
-#define BUTTON_GPIO     4           // Taster an GPIO4 (gegen GND)
+#define BUTTON_GPIO     17           // Taster an GPIO17 (gegen GND)
 
 // Empfangs-Task: läuft dauerhaft und wartet auf Zeichen vom anderen Board
 static void uart_rx_task(void *arg)
@@ -44,7 +44,7 @@ static void button_tx_task(void *arg)
         int current_state = gpio_get_level(BUTTON_GPIO); // Taster einlesen
 
         if (current_state != last_state) {          // Zustandsänderung erkannt
-            vTaskDelay(pdMS_TO_TICKS(20));           // 20ms warten zum Entprellen
+            vTaskDelay(pdMS_TO_TICKS(200));           // 20ms warten zum Entprellen
             current_state = gpio_get_level(BUTTON_GPIO); // nochmal lesen zur Bestätigung
 
             if (current_state != last_state) {       // immer noch geändert → kein Preller
