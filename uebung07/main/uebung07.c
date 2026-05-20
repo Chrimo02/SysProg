@@ -10,7 +10,7 @@ static const char *TAG = "MPU6050";
 #define I2C_MASTER_NUM      I2C_NUM_0
 #define I2C_MASTER_SDA_IO   8
 #define I2C_MASTER_SCL_IO   9
-#define I2C_MASTER_FREQ_HZ  100000
+#define I2C_MASTER_FREQ_HZ  400000
 
 // ── MPU6050 ────────────────────────────────────────────────────────────────
 #define MPU_ADDR            0x68    // AD0 = GND
@@ -89,9 +89,9 @@ void app_main(void)
     vTaskDelay(pdMS_TO_TICKS(100));
 
     // MPU6050 aus dem Sleep wecken (PWR_MGMT_1 = 0)
-    esp_err_t ret = mpu_write_byte(MPU_REG_PWR_MGMT_1, 0x00);
+    esp_err_t ret = mpu_write_byte(MPU_REG_PWR_MGMT_1, 0x00); //setzt im MPU6050 alle 8 bits des PWR_MGMT_1 Register auf 0 -> bit 6 = 0 bedeutet "Sleep Mode" deaktivieren, damit die IMU aufwacht und Daten liefert
     if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "MPU6050 nicht erreichbar: %s", esp_err_to_name(ret));
+        ESP_LOGE(TAG, "MPU6050 nicht erreichbar: %s", esp_err_to_name(ret)); //ESP_LOGE -> Makro aus esp_log.h, das "E" steht für Error -> für Error-logging
     } else {
         ESP_LOGI(TAG, "MPU6050 aufgeweckt");
     }
@@ -102,7 +102,7 @@ void app_main(void)
         if (ret != ESP_OK) {
             ESP_LOGE(TAG, "Lesefehler: %s", esp_err_to_name(ret));
         } else {
-            int16_t ax   = (int16_t)((buf[0]  << 8) | buf[1]);
+            int16_t ax   = (int16_t)((buf[0]  << 8) | buf[1]); // Thx Manuel für die Erklärung: in IMU alles in 8-Bit Register wegen I2C, aber Werte sind 16-Bit -> deswegen müssen für jeden Wert dessen beide 8-Bit Register (High + Low) aus der IMU lesen (über I2C) und dann in einem 16-Bit Register auf dem ESP32 (Master) zusammenfügen. Wir nehmen die den 8-Bit High-teil und shiften 8 nach links, sodass die unteren 8 bit des 16-Bit registers zuerst alle mit "0" belegt sind, dann verodern wir diese unteren 8 Bit mit den 8-Bit Low-Teil, sodass wir am Ende die 16-Bit Werte in einem Register haben.
             int16_t ay   = (int16_t)((buf[2]  << 8) | buf[3]);
             int16_t az   = (int16_t)((buf[4]  << 8) | buf[5]);
             int16_t traw = (int16_t)((buf[6]  << 8) | buf[7]);
@@ -117,6 +117,8 @@ void app_main(void)
                 ax, ay, az, temp_c, gx, gy, gz);
         }
 
-        vTaskDelay(pdMS_TO_TICKS(1000));
+        vTaskDelay(pdMS_TO_TICKS(200));
     }
 }
+
+
