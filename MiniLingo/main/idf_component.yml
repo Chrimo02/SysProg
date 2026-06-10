@@ -1,5 +1,6 @@
 dependencies:
-  espressif/esp_lcd_ili9341: "^2"
-  lvgl/lvgl: "^9"
+  espressif/esp_lcd_ili9341: ^2
+  lvgl/lvgl: ^9
   idf:
-    version: ">=5.0"
+    version: '>=5.0'
+  espressif/esp-sr: ^2.0

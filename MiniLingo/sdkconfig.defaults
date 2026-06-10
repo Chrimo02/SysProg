@@ -13,8 +13,18 @@ CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y
 CONFIG_PARTITION_TABLE_CUSTOM=y
 CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
 
+# CPU 240 MHz (esp-sr braucht volle Taktrate)
+CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_240=y
+
 # FreeRTOS
 CONFIG_FREERTOS_HZ=1000
+
+# esp-sr (Phase 2): WakeNet9 "Alexa". MultiNet7-EN wird schon jetzt in
+# die model-Partition gepackt, damit fuer Phase 4 kein erneutes
+# Model-Flashen noetig ist (geladen wird es erst dort).
+CONFIG_MODEL_IN_FLASH=y
+CONFIG_SR_WN_WN9_ALEXA=y
+CONFIG_SR_MN_EN_MULTINET7_QUANT=y
 
 # LVGL v9
 # Hinweis: LV_COLOR_16_SWAP aus der Spec existiert in LVGL v9 nicht mehr;
