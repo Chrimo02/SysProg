@@ -15,7 +15,7 @@
 |-------|--------------|--------|---------------|
 | 0 | Hardware-Komponententests (Mic, Amp, Display, Touch) | ✅ erledigt | Siehe [COMPONENT_TESTS.md](COMPONENT_TESTS.md), 2026-06-10 |
 | 1 | Projekt-Skelett + LVGL + UI-Mockup | ✅ erledigt | 2026-06-10, am Gerät verifiziert (UI, Touch, Scrolling) |
-| 2 | WiFi + esp-sr + Wake Word | ⬜ offen | |
+| 2 | WiFi + esp-sr + Wake Word | 🟡 implementiert | 2026-06-10, gebaut + geflasht, Pipeline läuft; Sprachtest ("Alexa") + echte WiFi-Credentials ausstehend |
 | 3 | Audio-Capture + Recording-Buffer | ⬜ offen | |
 | 4 | MultiNet + Lokale Commands | ⬜ offen | |
 | 5 | Groq Whisper Integration | ⬜ offen | |
@@ -29,36 +29,40 @@
 
 ## Aktueller Stand / Nächster Schritt
 
-**Stand 2026-06-10 (Session 2):** Phase 1 abgeschlossen und am Gerät
-verifiziert (UI gerendert, Text lesbar, Scrolling intuitiv, Mic-Button
-triggert, Status-Bar ohne Überlappung). Aufbau:
+**Stand 2026-06-10 (Session 3):** Phase 2 implementiert, gebaut und
+geflasht — Boot-Log zeigt die AFE-Pipeline sauber laufend
+(`[input] -> VAD(WebRTC) -> WakeNet(wn9_alexa)`, Threshold 0.8,
+Feed-Task mit 512-Sample-Chunks). Aufbau:
 
-- Projektstruktur gemäß Spec Section 11: `main/main.c`,
-  `main/drivers/` (display, touch), `main/ui/` (ui, ui_status_bar,
-  ui_chat, ui_mic_button). Die `*_test.c`-Dateien bleiben als Referenz
-  in `main/`, werden aber nicht mitgebaut.
-- LVGL 9.5.0 + `esp_lcd_ili9341` als Managed Components,
-  `sdkconfig.defaults` (PSRAM Octal, 16 MB Flash, Custom-Partitions)
-  und `partitions.csv` (nvs/factory/model/storage) angelegt.
-- UI: Status-Bar (WiFi/State/Volume, Montserrat 12, State-Text mit
-  124px-Budget + Ellipsis), scrollbarer Chat-Container mit
-  Bubble-Helpern (User blau rechts, Assistant grau links, Local grün
-  links), Mic-Button mit Zustandsfarben + Klick-Log und Dummy-Bubbles.
-- Beim Hardware-Test gefundene Fixes: Display horizontal gespiegelt
-  (→ `esp_lcd_panel_mirror(true, false)`), Touch-Achsen vertauscht
-  (XPT2046: 0x90=Y, 0xD0=X — Defines aus `touch_test.c` waren verdreht,
-  → `TOUCH_SWAP_XY=1`) und Y-Achse invertiert (→ `TOUCH_INVERT_Y=1`).
+- `main/Kconfig.projbuild`: WiFi-Credentials, API-Keys (für spätere
+  Phasen), `WAKE_WORD_THRESHOLD` (0–100, Default 80).
+- `main/network/wifi.c`: STA-Connect mit Kconfig-Credentials,
+  Auto-Reconnect per esp_timer (5s, nicht blockierend im Event-Loop),
+  Status-Callback → WiFi-Icon in der Status-Bar.
+- esp-sr 2.4.6 als Managed Component; in `sdkconfig.defaults`:
+  WakeNet9-Alexa + MultiNet7-EN (schon jetzt mitgeflasht, damit
+  Phase 4 kein erneutes Model-Flashen braucht), CPU 240 MHz.
+- `main/drivers/audio_in.c` (aus `mic_test.c`): I2S0 RX 16 kHz,
+  32→16-bit-Wandlung mit Shift 14 (+12 dB, gesättigt).
+- `main/speech/afe_pipeline.c`: AFE-Init + `afe_feed_task`/
+  `afe_fetch_task` (Core 1, Prio 5); `main/speech/wake_word.c`:
+  Detection-Log + Listener.
+- `main.c`: NVS-Init, WiFi-Start, Pipeline-Start; Wake-Word/WiFi-Events
+  laufen über atomare Flags + LVGL-Timer in die UI (Button rot,
+  State-Text "Listening...", lokale Bubble; Reset nach 3s, bis Phase 3
+  echtes Capture bringt). Dummy-Bubbles aus Phase 1 entfernt.
 
-**Nächster Schritt:** Phase 2 starten – `wifi.c` (STA-Connect mit
-Kconfig-Credentials, dafür `main/Kconfig.projbuild` anlegen), esp-sr
-via `idf.py add-dependency "espressif/esp-sr^2.0"`, WakeNet9-Alexa in
-menuconfig aktivieren, `audio_in.c` aus `mic_test.c` ableiten,
-AFE-Pipeline + Wake-Word-Callback (Button rot + Log).
+**Nächster Schritt:** Acceptance-Test Phase 2 durch Christian:
+1. `idf.py menuconfig` → "MiniLingo Configuration" → echte WiFi-SSID +
+   Passwort eintragen, `idf.py -p /dev/cu.usbmodem2101 flash monitor`.
+2. "Alexa" sagen → Mic-Button muss rot werden, Log "Wake word
+   detected". Falls unempfindlich: `SAMPLE_SHIFT` in `audio_in.c`
+   (aktuell 14) bzw. `WAKE_WORD_THRESHOLD` justieren.
+Danach Phase 3 (Audio-Capture + Recording-Buffer + VAD-Stop + WAV).
 
-**Offene Fragen/Blocker:** keine. (Touch-Rohwertspannen `TOUCH_RAW_*`
-sind noch die generischen Defaults — funktioniert gut genug für die
-UI; Feinkalibrierung über die Touch-Logzeilen ist optional, falls
-später Präzision fehlt.)
+**Offene Fragen/Blocker:** Wake-Word-Sprachtest und WiFi mit echten
+Credentials stehen aus (Platzhalter "yourwifi" → reason 201 im Log ist
+erwartet). Touch-Feinkalibrierung weiterhin optional.
 
 ---
 
@@ -78,6 +82,18 @@ später Präzision fehlt.)
 - **Partitionstabelle** (`model`/`storage`-Partitionen) schon in Phase 1
   angelegt statt erst mit esp-sr/SPIFFS, um spätere Re-Flashes zu
   vermeiden.
+- **esp-sr 2.x hat eine andere AFE-API als die Spec** (Section 5 zeigt
+  V1-Code): statt `AFE_CONFIG_DEFAULT()` + `ESP_AFE_SR_HANDLE` nun
+  `afe_config_init("M", models, AFE_TYPE_SR, AFE_MODE_LOW_COST)` +
+  `esp_afe_handle_from_config()`; das WakeNet-Model wird automatisch
+  aus der model-Partition gewählt. Threshold via
+  `set_wakenet_threshold(afe, 1, x)`.
+- **MultiNet7-EN schon in Phase 2 in die model-Partition gepackt**
+  (srmodels.bin ~3 MB von 5 MB) — geladen wird es erst in Phase 4,
+  spart aber ein erneutes Model-Flashen.
+- **INMP441-Pegel**: 32→16-bit-Wandlung in `audio_in.c` mit Shift 14
+  statt neutral 16 (= +12 dB, mit Sättigung), da das Mic leise ist.
+  Tuning-Punkt, falls Wake-Word-Erkennung zu un-/übersensibel ist.
 
 ---
 
