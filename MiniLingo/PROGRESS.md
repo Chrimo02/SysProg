@@ -15,7 +15,7 @@
 |-------|--------------|--------|---------------|
 | 0 | Hardware-Komponententests (Mic, Amp, Display, Touch) | ✅ erledigt | Siehe [COMPONENT_TESTS.md](COMPONENT_TESTS.md), 2026-06-10 |
 | 1 | Projekt-Skelett + LVGL + UI-Mockup | ✅ erledigt | 2026-06-10, am Gerät verifiziert (UI, Touch, Scrolling) |
-| 2 | WiFi + esp-sr + Wake Word | ✅ erledigt | 2026-06-10, Wake Word am Gerät verifiziert (3/3 Detections); WiFi-Code steht, braucht aber noch die 2,4-GHz-SSID |
+| 2 | WiFi + esp-sr + Wake Word | ✅ erledigt | 2026-06-10, am Gerät verifiziert: Wake Word 3/3 Detections, WiFi verbindet (2,4-GHz-SSID) |
 | 3 | Audio-Capture + Recording-Buffer | ⬜ offen | |
 | 4 | MultiNet + Lokale Commands | ⬜ offen | |
 | 5 | Groq Whisper Integration | ⬜ offen | |
@@ -58,17 +58,17 @@ Wichtig war, den WakeNet-Threshold auf dem **Model-Default (0.64)** zu
 belassen — der erste Versuch mit 0.8 erkannte nichts
 (`WAKE_WORD_THRESHOLD=0` heißt jetzt "Model-Default verwenden").
 
-**Nächster Schritt:**
-1. WiFi: in `idf.py menuconfig` die **2,4-GHz-SSID** eintragen — die
-   zuerst eingetragene `HUAWEI-..._5G_Wi-Fi5` ist das 5-GHz-Netz, das
-   der ESP32-S3 nicht kann (daher reason 201 = NO_AP_FOUND im Log).
-2. Phase 3 starten: Audio-Capture in PSRAM-Recording-Buffer im
-   `afe_fetch_task` (Frames nach Wake Word), VAD-Stop nach 1,5s
-   Stille / 8s Hard-Limit, `wav.c` mit WAV-Header, Test via
-   UART/SPIFFS-Export in Audacity.
+WiFi verbindet ebenfalls (verifiziert 2026-06-10). Achtung bei
+SSID-Wechsel: der ESP32-S3 kann **nur 2,4 GHz** — mit der 5-GHz-SSID
+des Routers gibt es reason 201 (NO_AP_FOUND).
 
-**Offene Fragen/Blocker:** nur die 2,4-GHz-WiFi-Credentials (s.o.).
-Touch-Feinkalibrierung weiterhin optional.
+**Nächster Schritt:** Phase 3 starten — Audio-Capture in
+PSRAM-Recording-Buffer im `afe_fetch_task` (Frames nach Wake Word),
+VAD-Stop nach 1,5s Stille / 8s Hard-Limit, `wav.c` mit WAV-Header,
+Test via UART/SPIFFS-Export in Audacity.
+
+**Offene Fragen/Blocker:** keine. Touch-Feinkalibrierung weiterhin
+optional.
 
 ---
 
