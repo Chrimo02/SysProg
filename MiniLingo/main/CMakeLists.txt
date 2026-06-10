@@ -7,6 +7,7 @@ idf_component_register(
          "drivers/touch.c"
          "drivers/audio_in.c"
          "network/wifi.c"
+         "debug/wav_dump.c"
          "speech/afe_pipeline.c"
          "speech/recorder.c"
          "speech/wake_word.c"

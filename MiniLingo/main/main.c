@@ -1,12 +1,15 @@
-// MiniLingo Phase 2: WiFi + esp-sr + Wake Word.
-// app_main initialisiert LVGL/Display/Touch/UI (Phase 1), dazu NVS,
-// WiFi-STA und die AFE-Pipeline mit WakeNet9-Alexa.
+// MiniLingo Phase 3: Audio-Capture + Recording-Buffer.
+// app_main initialisiert LVGL/Display/Touch/UI (Phase 1), NVS, WiFi-STA
+// und die AFE-Pipeline mit WakeNet9-Alexa (Phase 2); nach dem Wake Word
+// laeuft jetzt das Capture in den PSRAM-Recording-Buffer (Phase 3).
 //
-// Thread-Grenzen: WiFi-Events (Event-Loop-Task) und Wake-Word-Events
-// (afe_fetch_task, Core 1) duerfen LVGL nicht direkt anfassen — sie
-// setzen atomare Flags, die ein LVGL-Timer (app_event_timer_cb, laeuft
-// im lvgl_task) abholt und in UI-Updates uebersetzt.
+// Thread-Grenzen: WiFi-Events (Event-Loop-Task), Wake-Word- und
+// Recorder-Events (afe_fetch_task, Core 1) duerfen LVGL nicht direkt
+// anfassen — sie setzen atomare Flags, die ein LVGL-Timer
+// (app_event_timer_cb, laeuft im lvgl_task) abholt und in UI-Updates
+// uebersetzt.
 #include <stdatomic.h>
+#include <stdio.h>
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -16,25 +19,26 @@
 #include "nvs_flash.h"
 #include "lvgl.h"
 
+#include "debug/wav_dump.h"
 #include "drivers/audio_in.h"
 #include "drivers/display.h"
 #include "drivers/touch.h"
 #include "network/wifi.h"
 #include "speech/afe_pipeline.h"
+#include "speech/recorder.h"
 #include "speech/wake_word.h"
 #include "ui/ui.h"
 
 static const char *TAG = "main";
 
 #define IDLE_STATE_TEXT "Listening for Alexa"
-// Solange es noch keine Capture-Phase gibt (Phase 3), faellt der
-// Button nach dieser Zeit wieder auf Idle zurueck.
-#define WAKE_UI_RESET_MS 3000
 
 // -1 = keine Aenderung, 0 = getrennt, 1 = verbunden
 static atomic_int s_wifi_event = -1;
 static atomic_bool s_wake_event;
-static uint32_t s_wake_reset_at;
+static atomic_bool s_rec_done_event;
+static atomic_uint s_rec_duration_ms;
+static atomic_uint s_rec_wav_kb;
 
 static uint32_t lvgl_tick_get_cb(void)
 {
@@ -69,6 +73,18 @@ static void on_wake_word(void)
     atomic_store(&s_wake_event, true);
 }
 
+// Laeuft im afe_fetch_task. Der WAV-Buffer bleibt bis zum naechsten
+// recorder_start() gueltig — der Dump-Task liest ihn nur.
+static void on_recording_done(const uint8_t *wav, size_t wav_bytes,
+                              uint32_t duration_ms,
+                              recorder_stop_reason_t reason)
+{
+    wav_dump_trigger(wav, wav_bytes);
+    atomic_store(&s_rec_duration_ms, duration_ms);
+    atomic_store(&s_rec_wav_kb, (unsigned)(wav_bytes / 1024));
+    atomic_store(&s_rec_done_event, true);
+}
+
 // LVGL-Timer: holt Events aus den anderen Task-Kontexten ab.
 static void app_event_timer_cb(lv_timer_t *timer)
 {
@@ -80,13 +96,15 @@ static void app_event_timer_cb(lv_timer_t *timer)
     if (atomic_exchange(&s_wake_event, false)) {
         ui_mic_button_set_state(UI_MIC_LISTENING);
         ui_status_bar_set_state_text("Listening...");
-        ui_chat_add_local_bubble("Wake word detected!");
-        s_wake_reset_at = lv_tick_get() + WAKE_UI_RESET_MS;
     }
 
-    if (s_wake_reset_at != 0 &&
-        (int32_t)(lv_tick_get() - s_wake_reset_at) >= 0) {
-        s_wake_reset_at = 0;
+    if (atomic_exchange(&s_rec_done_event, false)) {
+        unsigned ms = atomic_load(&s_rec_duration_ms);
+        unsigned kb = atomic_load(&s_rec_wav_kb);
+        char text[48];
+        snprintf(text, sizeof(text), "Captured %u.%us audio (%u KB)",
+                 ms / 1000, (ms % 1000) / 100, kb);
+        ui_chat_add_local_bubble(text);
         ui_mic_button_set_state(UI_MIC_IDLE);
         ui_status_bar_set_state_text(IDLE_STATE_TEXT);
     }
@@ -94,7 +112,7 @@ static void app_event_timer_cb(lv_timer_t *timer)
 
 void app_main(void)
 {
-    ESP_LOGI(TAG, "MiniLingo Phase 2 starting");
+    ESP_LOGI(TAG, "MiniLingo Phase 3 starting");
 
     esp_err_t err = nvs_flash_init();
     if (err == ESP_ERR_NVS_NO_FREE_PAGES ||
@@ -121,9 +139,11 @@ void app_main(void)
 
     ESP_ERROR_CHECK(wifi_init(on_wifi_status));
 
+    wav_dump_init();
     wake_word_set_listener(on_wake_word);
+    ESP_ERROR_CHECK(recorder_init(on_recording_done));
     ESP_ERROR_CHECK(audio_in_init());
     ESP_ERROR_CHECK(afe_pipeline_init());
 
-    ESP_LOGI(TAG, "Phase 2 up: UI + WiFi + wake word pipeline running");
+    ESP_LOGI(TAG, "Phase 3 up: wake word + audio capture running");
 }
