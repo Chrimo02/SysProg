@@ -5,6 +5,7 @@ idf_component_register(
     SRCS "main.c"
          "drivers/display.c"
          "drivers/touch.c"
+         "network/wifi.c"
          "ui/ui.c"
          "ui/ui_status_bar.c"
          "ui/ui_chat.c"

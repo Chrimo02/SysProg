@@ -1,0 +1,33 @@
+menu "MiniLingo Configuration"
+
+    config WIFI_SSID
+        string "WiFi SSID"
+        default "yourwifi"
+
+    config WIFI_PASSWORD
+        string "WiFi Password"
+        default ""
+
+    config GROQ_API_KEY
+        string "Groq API Key"
+        default ""
+
+    config GEMINI_API_KEY
+        string "Gemini API Key"
+        default ""
+
+    config GEMINI_VOICE_NAME
+        string "Gemini TTS Voice"
+        default "Kore"
+        help
+            Available: Kore, Puck, Charon, Fenrir, Aoede
+
+    config WAKE_WORD_THRESHOLD
+        int "WakeNet detection threshold (0-100)"
+        default 80
+        help
+            Hoeher = strenger (weniger False-Positives, aber das Wake
+            Word muss deutlicher gesprochen werden). Wird in der
+            AFE-Config auf 0.0-1.0 skaliert.
+
+endmenu
