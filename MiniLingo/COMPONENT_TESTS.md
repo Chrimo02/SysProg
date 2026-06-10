@@ -119,3 +119,35 @@ dem Display teilen kann (eigener CS-Pin).
 
 Alle vier Farben wurden korrekt und vollflächig auf dem Display
 angezeigt. ✅ Erfolgreich getestet am 2026-06-10.
+
+## Touch: XPT2046 (SPI)
+
+**Datei:** `main/touch_test.c`
+
+### Verkabelung
+
+| Touch (XPT2046) Pin | ESP32-S3 Pin | Hinweis |
+|----------------------|--------------|---------|
+| T_CLK | GPIO12 (=SCK)  | gemeinsamer SPI-Bus mit Display |
+| T_CS  | GPIO14 | eigener CS |
+| T_DIN | GPIO11 (=MOSI) | gemeinsamer SPI-Bus mit Display |
+| T_DO  | GPIO13 (=MISO) | gemeinsamer SPI-Bus mit Display |
+| T_IRQ | nicht angeschlossen | Polling statt Interrupt |
+
+### Implementierung
+
+- SPI2_HOST wird mit denselben Pins wie das Display konfiguriert
+  (`SPI_DMA_DISABLED`, da nur kurze 3-Byte-Transfers nötig sind),
+  der XPT2046 erhält ein eigenes `spi_device` mit CS=GPIO14.
+- In einer Endlosschleife werden per `spi_device_polling_transmit`
+  die Steuerbytes 0x90/0xD0/0xB0/0xC0 gesendet, um X-, Y-, Z1- und
+  Z2-Rohwerte (12 Bit) auszulesen.
+- T_IRQ ist nicht angeschlossen; stattdessen wird alle 50 ms gepollt
+  und nur bei Z1 > 100 (Druck erkannt) eine Zeile per `ESP_LOGI`
+  ausgegeben.
+
+### Testergebnis (Touch)
+
+Beim Berühren des Displays wurden plausible X/Y/Z-Rohwerte ausgegeben,
+die sich mit der Berührposition änderten. ✅ Erfolgreich getestet am
+2026-06-10.

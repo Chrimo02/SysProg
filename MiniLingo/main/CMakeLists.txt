@@ -1,2 +1,2 @@
-idf_component_register(SRCS "display_test.c"
+idf_component_register(SRCS "touch_test.c"
                     INCLUDE_DIRS ".")
