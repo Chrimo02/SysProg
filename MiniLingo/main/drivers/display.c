@@ -88,6 +88,9 @@ esp_err_t display_init(void)
 
     ESP_RETURN_ON_ERROR(esp_lcd_panel_reset(s_panel), TAG, "panel reset failed");
     ESP_RETURN_ON_ERROR(esp_lcd_panel_init(s_panel), TAG, "panel init failed");
+    // Das Panel ist ab Werk horizontal gespiegelt (Text erschien
+    // spiegelverkehrt); MADCTL-MX korrigiert das.
+    ESP_RETURN_ON_ERROR(esp_lcd_panel_mirror(s_panel, true, false), TAG, "mirror failed");
     ESP_RETURN_ON_ERROR(esp_lcd_panel_disp_on_off(s_panel, true), TAG, "disp on failed");
 
     ESP_LOGI(TAG, "Registering LVGL display");

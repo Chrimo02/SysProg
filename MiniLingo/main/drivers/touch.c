@@ -12,7 +12,10 @@ static const char *TAG = "touch";
 #define TOUCH_HOST    SPI2_HOST
 #define PIN_NUM_T_CS  GPIO_NUM_14
 
-// XPT2046 control bytes (12-bit mode, single-ended, power on)
+// XPT2046 control bytes (12-bit mode, single-ended, power on).
+// Achtung: laut Datenblatt liest 0x90 die Y- und 0xD0 die X-Position —
+// die Benennung hier stammt aus touch_test.c und ist vertauscht,
+// TOUCH_SWAP_XY=1 unten gleicht das aus.
 #define CMD_READ_X  0x90
 #define CMD_READ_Y  0xD0
 #define CMD_READ_Z1 0xB0
@@ -28,9 +31,9 @@ static const char *TAG = "touch";
 #define TOUCH_RAW_X_MAX 3900
 #define TOUCH_RAW_Y_MIN 240
 #define TOUCH_RAW_Y_MAX 3800
-#define TOUCH_SWAP_XY   0
+#define TOUCH_SWAP_XY   1
 #define TOUCH_INVERT_X  0
-#define TOUCH_INVERT_Y  0
+#define TOUCH_INVERT_Y  1
 
 static spi_device_handle_t s_touch_spi;
 static lv_indev_t *s_indev;
