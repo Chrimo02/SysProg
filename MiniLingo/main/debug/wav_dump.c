@@ -13,6 +13,7 @@
 #include "freertos/semphr.h"
 #include "freertos/task.h"
 
+#include "esp_log.h"
 #include "mbedtls/base64.h"
 
 #include "wav_dump.h"
@@ -31,6 +32,12 @@ static void wav_dump_task(void *arg)
     while (1) {
         xSemaphoreTake(s_sem, portMAX_DELAY);
 
+        // ESP_LOG anderer Tasks (z. B. WiFi-Reconnect) wuerde sich
+        // zeichenweise in die Base64-Zeilen mischen und den Dump
+        // korrumpieren — fuer die Dauer des Dumps stummschalten.
+        esp_log_level_t prev_level = esp_log_level_get("*");
+        esp_log_level_set("*", ESP_LOG_NONE);
+
         printf("\nWAV_DUMP_BEGIN bytes=%u\n", (unsigned)s_bytes);
         for (size_t off = 0; off < s_bytes; off += CHUNK_BYTES) {
             size_t n = s_bytes - off;
@@ -42,8 +49,14 @@ static void wav_dump_task(void *arg)
                                   &olen, s_data + off, n);
             line[olen] = '\0';
             printf("%s\n", line);
+            // printf busy-waitet auf die UART-FIFO (Default-Console
+            // ohne UART-Treiber) — ohne Yield verhungert IDLE0 und der
+            // Task-Watchdog schreibt seinen Report mitten in den Dump.
+            vTaskDelay(1);
         }
         printf("WAV_DUMP_END\n");
+
+        esp_log_level_set("*", prev_level);
     }
 }
 
