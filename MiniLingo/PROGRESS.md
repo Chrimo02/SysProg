@@ -16,7 +16,7 @@
 | 0 | Hardware-Komponententests (Mic, Amp, Display, Touch) | ✅ erledigt | Siehe [COMPONENT_TESTS.md](COMPONENT_TESTS.md), 2026-06-10 |
 | 1 | Projekt-Skelett + LVGL + UI-Mockup | ✅ erledigt | 2026-06-10, am Gerät verifiziert (UI, Touch, Scrolling) |
 | 2 | WiFi + esp-sr + Wake Word | ✅ erledigt | 2026-06-10, am Gerät verifiziert: Wake Word 3/3 Detections, WiFi verbindet (2,4-GHz-SSID) |
-| 3 | Audio-Capture + Recording-Buffer | 🔶 implementiert | 2026-06-10 gebaut+geflasht, Boot-Log OK; Sprachtest (WAV in Audacity) ausstehend |
+| 3 | Audio-Capture + Recording-Buffer | ✅ erledigt | 2026-06-10, am Gerät verifiziert: WAV via UART-Dump extrahiert, Sprache anhörbar |
 | 4 | MultiNet + Lokale Commands | ⬜ offen | |
 | 5 | Groq Whisper Integration | ⬜ offen | |
 | 6 | Gemini Flash Integration | ⬜ offen | |
@@ -51,16 +51,22 @@ max 8000 ms)`, AFE-Pipeline läuft). Aufbau:
   Phase 2 entfernt), danach lokale Bubble "Captured X.Xs audio (Y KB)".
   Recorder-Callback läuft im afe_fetch_task → atomare Flags wie gehabt.
 
-**Acceptance-Test Phase 3 (ausstehend):** "Alexa" + ~5s sprechen,
-Monitor-Log speichern (`idf.py monitor | tee monitor.log` oder in
-monitor Ctrl-T Ctrl-L), dann
-`python3 tools/extract_wav.py monitor.log` und die WAV in Audacity
-prüfen (16 kHz mono, Sprache verständlich).
+**Acceptance-Test Phase 3 (2026-06-10): bestanden.** WAV via
+`idf.py monitor | tee monitor.log` + `tools/extract_wav.py`
+extrahiert, Aufnahme anhörbar und verständlich. Der erste Lauf
+schlug fehl (96 Bytes fehlten): der Task-Watchdog (Dump-Task
+busy-waitet auf die UART-FIFO, IDLE0 verhungert) und interleavte
+WiFi-Logs schrieben mitten in die Base64-Zeilen. Fix: `vTaskDelay(1)`
+pro Dump-Zeile + Logs während des Dumps stummschalten;
+`extract_wav.py` erkennt korrupte Zeilen jetzt an der Zeilenlänge.
 
-**Nächster Schritt:** Acceptance-Test Phase 3 am Gerät; danach
-Phase 4 — MultiNet7-EN laden (Model liegt schon in der
-model-Partition), 14 lokale Commands, `timer.c`, `volume.c`,
-Canned-TTS aus SPIFFS.
+**Nächster Schritt:** Phase 4 — MultiNet7-EN laden (Model liegt schon
+in der model-Partition), 14 lokale Commands (`commands.c`), `timer.c`,
+`volume.c`, Canned-TTS-WAVs generieren (`scripts/
+generate_canned_tts.py`) + SPIFFS (`canned_audio.c`).
+`CONFIG_RECORDING_WAV_DUMP` kann vorerst an bleiben (stört nur durch
+die ~30s Dump-Zeit nach jedem Capture); spätestens ab Phase 5
+abschalten.
 
 **Offene Fragen/Blocker:** keine. Touch-Feinkalibrierung weiterhin
 optional. Hinweise aus Phase 2, die weiter gelten: WakeNet-Threshold
