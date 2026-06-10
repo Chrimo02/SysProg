@@ -14,7 +14,7 @@
 | Phase | Beschreibung | Status | Notizen/Datum |
 |-------|--------------|--------|---------------|
 | 0 | Hardware-Komponententests (Mic, Amp, Display, Touch) | ✅ erledigt | Siehe [COMPONENT_TESTS.md](COMPONENT_TESTS.md), 2026-06-10 |
-| 1 | Projekt-Skelett + LVGL + UI-Mockup | 🟡 implementiert | 2026-06-10, baut sauber; Hardware-Test (Acceptance) steht aus |
+| 1 | Projekt-Skelett + LVGL + UI-Mockup | ✅ erledigt | 2026-06-10, am Gerät verifiziert (UI, Touch, Scrolling) |
 | 2 | WiFi + esp-sr + Wake Word | ⬜ offen | |
 | 3 | Audio-Capture + Recording-Buffer | ⬜ offen | |
 | 4 | MultiNet + Lokale Commands | ⬜ offen | |
@@ -29,8 +29,9 @@
 
 ## Aktueller Stand / Nächster Schritt
 
-**Stand 2026-06-10 (Session 2):** Phase 1 implementiert und der Build
-läuft fehlerfrei durch (`idf.py build`, App ~520 KB). Neu:
+**Stand 2026-06-10 (Session 2):** Phase 1 abgeschlossen und am Gerät
+verifiziert (UI gerendert, Text lesbar, Scrolling intuitiv, Mic-Button
+triggert, Status-Bar ohne Überlappung). Aufbau:
 
 - Projektstruktur gemäß Spec Section 11: `main/main.c`,
   `main/drivers/` (display, touch), `main/ui/` (ui, ui_status_bar,
@@ -39,22 +40,25 @@ läuft fehlerfrei durch (`idf.py build`, App ~520 KB). Neu:
 - LVGL 9.5.0 + `esp_lcd_ili9341` als Managed Components,
   `sdkconfig.defaults` (PSRAM Octal, 16 MB Flash, Custom-Partitions)
   und `partitions.csv` (nvs/factory/model/storage) angelegt.
-- UI: Status-Bar (WiFi/State/Volume), scrollbarer Chat-Container mit
+- UI: Status-Bar (WiFi/State/Volume, Montserrat 12, State-Text mit
+  124px-Budget + Ellipsis), scrollbarer Chat-Container mit
   Bubble-Helpern (User blau rechts, Assistant grau links, Local grün
   links), Mic-Button mit Zustandsfarben + Klick-Log und Dummy-Bubbles.
+- Beim Hardware-Test gefundene Fixes: Display horizontal gespiegelt
+  (→ `esp_lcd_panel_mirror(true, false)`), Touch-Achsen vertauscht
+  (XPT2046: 0x90=Y, 0xD0=X — Defines aus `touch_test.c` waren verdreht,
+  → `TOUCH_SWAP_XY=1`) und Y-Achse invertiert (→ `TOUCH_INVERT_Y=1`).
 
-**Nächster Schritt:** Acceptance-Test Phase 1 am Gerät: flashen
-(`idf.py flash monitor`), prüfen dass UI gerendert wird, Scrolling
-funktioniert und Mic-Button-Touch den Log `Mic button pressed` auslöst.
-Dabei Touch-Kalibrierung verifizieren: in `main/drivers/touch.c` sind
-typische Default-Rohwertspannen hardcodiert (`TOUCH_RAW_*`,
-`TOUCH_SWAP_XY`, `TOUCH_INVERT_*`); bei jedem neuen Druck wird
-`raw=(x,y) -> px=(x,y)` geloggt, damit lassen sich die 4 Eckpunkte
-ausmessen und die Defines anpassen. Danach Phase 2 (WiFi + esp-sr +
-Wake Word).
+**Nächster Schritt:** Phase 2 starten – `wifi.c` (STA-Connect mit
+Kconfig-Credentials, dafür `main/Kconfig.projbuild` anlegen), esp-sr
+via `idf.py add-dependency "espressif/esp-sr^2.0"`, WakeNet9-Alexa in
+menuconfig aktivieren, `audio_in.c` aus `mic_test.c` ableiten,
+AFE-Pipeline + Wake-Word-Callback (Button rot + Log).
 
-**Offene Fragen/Blocker:** Touch-Kalibrierwerte und Farbdarstellung
-(Byte-Swap) sind ohne Hardware ungetestet — Verifikation am Gerät nötig.
+**Offene Fragen/Blocker:** keine. (Touch-Rohwertspannen `TOUCH_RAW_*`
+sind noch die generischen Defaults — funktioniert gut genug für die
+UI; Feinkalibrierung über die Touch-Logzeilen ist optional, falls
+später Präzision fehlt.)
 
 ---
 
