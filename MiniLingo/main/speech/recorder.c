@@ -54,6 +54,14 @@ bool recorder_is_active(void)
     return s_active;
 }
 
+void recorder_abort(void)
+{
+    if (s_active) {
+        s_active = false;
+        ESP_LOGI(TAG, "capture aborted (local command match)");
+    }
+}
+
 static void finish(recorder_stop_reason_t reason)
 {
     s_active = false;

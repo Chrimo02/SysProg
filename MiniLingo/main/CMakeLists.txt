@@ -6,9 +6,14 @@ idf_component_register(
          "drivers/display.c"
          "drivers/touch.c"
          "drivers/audio_in.c"
+         "drivers/audio_out.c"
+         "local/canned_audio.c"
+         "local/timer.c"
+         "local/volume.c"
          "network/wifi.c"
          "debug/wav_dump.c"
          "speech/afe_pipeline.c"
+         "speech/commands.c"
          "speech/recorder.c"
          "speech/wake_word.c"
          "speech/wav.c"
@@ -17,3 +22,8 @@ idf_component_register(
          "ui/ui_chat.c"
          "ui/ui_mic_button.c"
     INCLUDE_DIRS ".")
+
+# Canned-TTS-WAVs (scripts/generate_canned_tts.py -> spiffs/) als
+# SPIFFS-Image in die storage-Partition; wird bei "idf.py flash"
+# mitgeflasht.
+spiffs_create_partition_image(storage ../spiffs FLASH_IN_PROJECT)

@@ -23,10 +23,14 @@ typedef void (*recorder_done_cb_t)(const uint8_t *wav, size_t wav_bytes,
 // = 256 KB + Header).
 esp_err_t recorder_init(recorder_done_cb_t cb);
 
-// start/feed/is_active laufen alle im afe_fetch_task — kein Locking
-// noetig, solange das so bleibt.
+// start/feed/abort/is_active laufen alle im afe_fetch_task — kein
+// Locking noetig, solange das so bleibt.
 void recorder_start(void);
 bool recorder_is_active(void);
+
+// Capture verwerfen ohne Done-Callback (Phase 4: MultiNet-Match —
+// die Aufnahme war ein lokaler Command, kein Cloud-Query).
+void recorder_abort(void);
 
 // Haengt einen AFE-Frame an (bytes = Laenge in Bytes, wie
 // afe_fetch_result_t.data_size). is_speech = VAD-Ergebnis des Frames.

@@ -4,7 +4,8 @@
 //
 // afe_feed_task:  I2S0 (audio_in) -> AFE
 // afe_fetch_task: AFE -> WakeNet-Ergebnis -> wake_word_on_detected(),
-//                 danach Frames -> recorder (Phase 3, Spec Section 9.1)
+//                 danach Frames parallel an recorder (Phase 3, Spec
+//                 Section 9.1) und MultiNet/commands (Phase 4).
 // Beide auf Core 1, Prio 5 (Task-Tabelle Spec Section 8).
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -12,17 +13,16 @@
 #include "esp_afe_sr_models.h"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
-#include "model_path.h"
 #include "sdkconfig.h"
 
 #include "drivers/audio_in.h"
+#include "commands.h"
 #include "recorder.h"
 #include "wake_word.h"
 #include "afe_pipeline.h"
 
 static const char *TAG = "afe_pipeline";
 
-static srmodel_list_t *s_models;
 static const esp_afe_sr_iface_t *s_afe_handle;
 static esp_afe_sr_data_t *s_afe_data;
 
@@ -79,27 +79,39 @@ static void afe_fetch_task(void *arg)
             // Capture ab dem naechsten Frame — res->data dieses Frames
             // enthaelt noch das Ende des Wake Words selbst.
             recorder_start();
+            commands_session_start();
             continue;
         }
 
         if (recorder_is_active()) {
             // vad_cache enthaelt vom VAD zurueckgehaltene Samples, die
             // zeitlich VOR res->data liegen — zuerst anhaengen, damit
-            // der Sprachanfang nicht abgeschnitten wird.
+            // der Sprachanfang nicht abgeschnitten wird. MultiNet
+            // bekommt dieselben Frames wie der Recorder.
             if (res->vad_cache_size > 0) {
                 recorder_feed(res->vad_cache, (size_t)res->vad_cache_size,
                               true);
+                commands_feed(res->vad_cache,
+                              (size_t)res->vad_cache_size / sizeof(int16_t));
             }
+            // Bei einem MultiNet-Match bricht der Callback (main.c) die
+            // Aufnahme per recorder_abort() ab — recorder_feed dahinter
+            // ist dann ein no-op.
+            commands_feed(res->data, (size_t)res->data_size / sizeof(int16_t));
             recorder_feed(res->data, (size_t)res->data_size,
                           res->vad_state == VAD_SPEECH);
+            if (!recorder_is_active()) {
+                // Capture-Ende (Stille/Limit/Abort) beendet auch das
+                // MultiNet-Fenster ("force timeout", Spec Section 9.1).
+                commands_session_stop();
+            }
         }
     }
 }
 
-esp_err_t afe_pipeline_init(void)
+esp_err_t afe_pipeline_init(srmodel_list_t *models)
 {
-    s_models = esp_srmodel_init("model");
-    if (!s_models || s_models->num <= 0) {
+    if (!models || models->num <= 0) {
         ESP_LOGE(TAG, "no models in partition 'model' — flashed?");
         return ESP_FAIL;
     }
@@ -108,7 +120,7 @@ esp_err_t afe_pipeline_init(void)
     // der Model-Partition (einziges WakeNet: wn9_alexa), VAD ist im
     // AFE_TYPE_SR-Default aktiv, AEC bleibt aus (Phase 8).
     afe_config_t *cfg =
-        afe_config_init("M", s_models, AFE_TYPE_SR, AFE_MODE_LOW_COST);
+        afe_config_init("M", models, AFE_TYPE_SR, AFE_MODE_LOW_COST);
     if (!cfg) {
         ESP_LOGE(TAG, "afe_config_init failed");
         return ESP_FAIL;
