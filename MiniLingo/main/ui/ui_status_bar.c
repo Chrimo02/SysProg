@@ -20,6 +20,9 @@ void ui_status_bar_create(lv_obj_t *parent)
     lv_obj_set_style_pad_hor(bar, 8, 0);
     lv_obj_set_style_pad_ver(bar, 0, 0);
     lv_obj_clear_flag(bar, LV_OBJ_FLAG_SCROLLABLE);
+    // Kleinerer Font als im Chat: die 30-px-Bar muss WiFi-Symbol,
+    // State-Text und Volume nebeneinander unterbringen.
+    lv_obj_set_style_text_font(bar, &lv_font_montserrat_12, 0);
 
     s_wifi_label = lv_label_create(bar);
     lv_label_set_text(s_wifi_label, LV_SYMBOL_WIFI);
@@ -28,6 +31,11 @@ void ui_status_bar_create(lv_obj_t *parent)
     s_state_label = lv_label_create(bar);
     lv_label_set_text(s_state_label, "");
     lv_obj_set_style_text_color(s_state_label, lv_color_hex(0xE0E0E0), 0);
+    // Festes Breitenbudget zwischen WiFi-Symbol und Volume-Anzeige;
+    // laengere Texte werden mit "..." gekappt statt zu ueberlappen.
+    lv_obj_set_width(s_state_label, 124);
+    lv_label_set_long_mode(s_state_label, LV_LABEL_LONG_DOT);
+    lv_obj_set_style_text_align(s_state_label, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_align(s_state_label, LV_ALIGN_CENTER, 0, 0);
 
     s_volume_label = lv_label_create(bar);
