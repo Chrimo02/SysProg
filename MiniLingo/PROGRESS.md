@@ -16,7 +16,7 @@
 | 0 | Hardware-Komponententests (Mic, Amp, Display, Touch) | ✅ erledigt | Siehe [COMPONENT_TESTS.md](COMPONENT_TESTS.md), 2026-06-10 |
 | 1 | Projekt-Skelett + LVGL + UI-Mockup | ✅ erledigt | 2026-06-10, am Gerät verifiziert (UI, Touch, Scrolling) |
 | 2 | WiFi + esp-sr + Wake Word | ✅ erledigt | 2026-06-10, am Gerät verifiziert: Wake Word 3/3 Detections, WiFi verbindet (2,4-GHz-SSID) |
-| 3 | Audio-Capture + Recording-Buffer | ⬜ offen | |
+| 3 | Audio-Capture + Recording-Buffer | 🔶 implementiert | 2026-06-10 gebaut+geflasht, Boot-Log OK; Sprachtest (WAV in Audacity) ausstehend |
 | 4 | MultiNet + Lokale Commands | ⬜ offen | |
 | 5 | Groq Whisper Integration | ⬜ offen | |
 | 6 | Gemini Flash Integration | ⬜ offen | |
@@ -29,46 +29,43 @@
 
 ## Aktueller Stand / Nächster Schritt
 
-**Stand 2026-06-10 (Session 3):** Phase 2 implementiert, gebaut und
-geflasht — Boot-Log zeigt die AFE-Pipeline sauber laufend
-(`[input] -> VAD(WebRTC) -> WakeNet(wn9_alexa)`, Threshold 0.8,
-Feed-Task mit 512-Sample-Chunks). Aufbau:
+**Stand 2026-06-10 (Session 4):** Phase 3 implementiert, gebaut und
+geflasht — Boot-Log sauber (`recording buffer ready (250 KB PSRAM,
+max 8000 ms)`, AFE-Pipeline läuft). Aufbau:
 
-- `main/Kconfig.projbuild`: WiFi-Credentials, API-Keys (für spätere
-  Phasen), `WAKE_WORD_THRESHOLD` (0–100, Default 80).
-- `main/network/wifi.c`: STA-Connect mit Kconfig-Credentials,
-  Auto-Reconnect per esp_timer (5s, nicht blockierend im Event-Loop),
-  Status-Callback → WiFi-Icon in der Status-Bar.
-- esp-sr 2.4.6 als Managed Component; in `sdkconfig.defaults`:
-  WakeNet9-Alexa + MultiNet7-EN (schon jetzt mitgeflasht, damit
-  Phase 4 kein erneutes Model-Flashen braucht), CPU 240 MHz.
-- `main/drivers/audio_in.c` (aus `mic_test.c`): I2S0 RX 16 kHz,
-  32→16-bit-Wandlung mit Shift 14 (+12 dB, gesättigt).
-- `main/speech/afe_pipeline.c`: AFE-Init + `afe_feed_task`/
-  `afe_fetch_task` (Core 1, Prio 5); `main/speech/wake_word.c`:
-  Detection-Log + Listener.
-- `main.c`: NVS-Init, WiFi-Start, Pipeline-Start; Wake-Word/WiFi-Events
-  laufen über atomare Flags + LVGL-Timer in die UI (Button rot,
-  State-Text "Listening...", lokale Bubble; Reset nach 3s, bis Phase 3
-  echtes Capture bringt). Dummy-Bubbles aus Phase 1 entfernt.
+- `main/speech/recorder.c`: 256-KB-Recording-Buffer im PSRAM
+  (8s @ 16kHz @ 16bit + 44-Byte-Header-Platz). `afe_fetch_task`
+  startet das Capture beim Wake Word (das Detection-Frame selbst wird
+  übersprungen, es enthält noch das Wake-Word-Ende) und feedet dann
+  jeden AFE-Frame; `vad_cache` wird vorangestellt (vom VAD
+  zurückgehaltener Sprachanfang). Stop bei 1,5s zusammenhängender
+  Stille (`res->vad_state`) oder 8s-Hard-Limit.
+- `main/speech/wav.c`: 44-Byte-RIFF-Header, wird bei Capture-Ende vor
+  die Samples geschrieben → Buffer ist upload-fertig für Phase 5.
+- `main/debug/wav_dump.c` (`CONFIG_RECORDING_WAV_DUMP`, Default an):
+  dumpt den fertigen WAV-Buffer Base64-codiert über UART (eigener
+  Task Prio 2/Core 0, blockiert die Pipeline nicht; ~30s bei 115200
+  Baud). `tools/extract_wav.py` extrahiert die .wav aus dem
+  Monitor-Log. Ab Phase 5 abschalten.
+- `main.c`: Mic-Button bleibt rot bis Capture-Ende (3s-Reset-Hack aus
+  Phase 2 entfernt), danach lokale Bubble "Captured X.Xs audio (Y KB)".
+  Recorder-Callback läuft im afe_fetch_task → atomare Flags wie gehabt.
 
-**Acceptance-Test Phase 2 (2026-06-10):** "Alexa" wurde 3/3 Mal
-erkannt (Log `Wake word detected`, Ruhe-RMS 10–30, Sprache 250–400).
-Wichtig war, den WakeNet-Threshold auf dem **Model-Default (0.64)** zu
-belassen — der erste Versuch mit 0.8 erkannte nichts
-(`WAKE_WORD_THRESHOLD=0` heißt jetzt "Model-Default verwenden").
+**Acceptance-Test Phase 3 (ausstehend):** "Alexa" + ~5s sprechen,
+Monitor-Log speichern (`idf.py monitor | tee monitor.log` oder in
+monitor Ctrl-T Ctrl-L), dann
+`python3 tools/extract_wav.py monitor.log` und die WAV in Audacity
+prüfen (16 kHz mono, Sprache verständlich).
 
-WiFi verbindet ebenfalls (verifiziert 2026-06-10). Achtung bei
-SSID-Wechsel: der ESP32-S3 kann **nur 2,4 GHz** — mit der 5-GHz-SSID
-des Routers gibt es reason 201 (NO_AP_FOUND).
-
-**Nächster Schritt:** Phase 3 starten — Audio-Capture in
-PSRAM-Recording-Buffer im `afe_fetch_task` (Frames nach Wake Word),
-VAD-Stop nach 1,5s Stille / 8s Hard-Limit, `wav.c` mit WAV-Header,
-Test via UART/SPIFFS-Export in Audacity.
+**Nächster Schritt:** Acceptance-Test Phase 3 am Gerät; danach
+Phase 4 — MultiNet7-EN laden (Model liegt schon in der
+model-Partition), 14 lokale Commands, `timer.c`, `volume.c`,
+Canned-TTS aus SPIFFS.
 
 **Offene Fragen/Blocker:** keine. Touch-Feinkalibrierung weiterhin
-optional.
+optional. Hinweise aus Phase 2, die weiter gelten: WakeNet-Threshold
+auf Model-Default (0.64) belassen; ESP32-S3 kann nur 2,4-GHz-WiFi
+(5-GHz-SSID → reason 201).
 
 ---
 
