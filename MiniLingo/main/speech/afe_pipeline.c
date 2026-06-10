@@ -3,7 +3,8 @@
 // V1-Makros AFE_CONFIG_DEFAULT aus der Spec).
 //
 // afe_feed_task:  I2S0 (audio_in) -> AFE
-// afe_fetch_task: AFE -> WakeNet-Ergebnis -> wake_word_on_detected()
+// afe_fetch_task: AFE -> WakeNet-Ergebnis -> wake_word_on_detected(),
+//                 danach Frames -> recorder (Phase 3, Spec Section 9.1)
 // Beide auf Core 1, Prio 5 (Task-Tabelle Spec Section 8).
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -15,6 +16,7 @@
 #include "sdkconfig.h"
 
 #include "drivers/audio_in.h"
+#include "recorder.h"
 #include "wake_word.h"
 #include "afe_pipeline.h"
 
@@ -72,12 +74,25 @@ static void afe_fetch_task(void *arg)
             continue;
         }
 
-        if (res->wakeup_state == WAKENET_DETECTED) {
+        if (res->wakeup_state == WAKENET_DETECTED && !recorder_is_active()) {
             wake_word_on_detected(res->wake_word_index);
+            // Capture ab dem naechsten Frame — res->data dieses Frames
+            // enthaelt noch das Ende des Wake Words selbst.
+            recorder_start();
+            continue;
         }
 
-        // Phase 3: hier res->data in den Recording-Buffer schreiben
-        // und res->vad_state fuer das Capture-Ende auswerten.
+        if (recorder_is_active()) {
+            // vad_cache enthaelt vom VAD zurueckgehaltene Samples, die
+            // zeitlich VOR res->data liegen — zuerst anhaengen, damit
+            // der Sprachanfang nicht abgeschnitten wird.
+            if (res->vad_cache_size > 0) {
+                recorder_feed(res->vad_cache, (size_t)res->vad_cache_size,
+                              true);
+            }
+            recorder_feed(res->data, (size_t)res->data_size,
+                          res->vad_state == VAD_SPEECH);
+        }
     }
 }
 
