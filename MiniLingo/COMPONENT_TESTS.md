@@ -80,3 +80,42 @@ MAX98357A).
 
 1 kHz-Ton war über beide in Reihe geschalteten Lautsprecher klar
 hörbar. ✅ Erfolgreich getestet am 2026-06-10.
+
+## Display: ILI9341 (SPI)
+
+**Datei:** `main/display_test.c`
+
+### Verkabelung
+
+| Display Pin | ESP32-S3 Pin | Hinweis |
+|-------------|--------------|---------|
+| VCC  | 3V3    | |
+| GND  | GND    | |
+| CS   | GPIO10 | |
+| RESET| GPIO9  | |
+| DC/RS| GPIO8  | |
+| SDI/MOSI | GPIO11 | |
+| SCK  | GPIO12 | |
+| LED  | 3V3    | immer an |
+| SDO/MISO | GPIO13 | |
+
+GPIOs wurden bewusst frei von den Mic-/Amp-Tests (4/5/6, 15/16/17)
+gewählt, sodass der XPT2046-Touch (siehe unten) sich SCK/MOSI/MISO mit
+dem Display teilen kann (eigener CS-Pin).
+
+### Implementierung
+
+- SPI2_HOST wird über `spi_bus_initialize` konfiguriert.
+- Das ILI9341-Panel wird über die Managed Component
+  `espressif/esp_lcd_ili9341` (esp_lcd-Treiber, kein Arduino) mit
+  16-Bit RGB565, Auflösung 240x320 initialisiert.
+- Reset, Init und Display-On werden über `esp_lcd_panel_*`-Funktionen
+  ausgeführt.
+- In einer Endlosschleife wird der Bildschirm nacheinander mit
+  Rot/Grün/Blau/Weiß gefüllt (`esp_lcd_panel_draw_bitmap`, zeilenweise),
+  je 2 Sekunden Anzeigedauer.
+
+### Testergebnis
+
+Alle vier Farben wurden korrekt und vollflächig auf dem Display
+angezeigt. ✅ Erfolgreich getestet am 2026-06-10.
