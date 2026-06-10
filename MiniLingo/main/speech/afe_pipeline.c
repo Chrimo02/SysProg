@@ -35,8 +35,29 @@ static void afe_feed_task(void *arg)
                                     MALLOC_CAP_INTERNAL);
     assert(buf);
 
+    int chunks = 0;
+
     while (1) {
         if (audio_in_read(buf, (size_t)chunk * channels) == ESP_OK) {
+            // Mic-Pegel-Diagnose alle ~3s (Chunk = 32 ms), analog zu
+            // mic_test.c. Debug-Level: fuer Gain-Tuning per
+            // CONFIG_LOG_MAXIMUM_LEVEL_DEBUG aktivieren. Referenz vom
+            // Wake-Word-Test 2026-06-10: Ruhe rms 10-30, "Alexa" in
+            // normaler Lautstaerke rms 250-400 — detektiert zuverlaessig.
+            if (++chunks % 100 == 0) {
+                int64_t sum_sq = 0;
+                int16_t peak = 0;
+                for (int i = 0; i < chunk * channels; i++) {
+                    sum_sq += (int32_t)buf[i] * buf[i];
+                    int16_t a = buf[i] < 0 ? -buf[i] : buf[i];
+                    if (a > peak) {
+                        peak = a;
+                    }
+                }
+                ESP_LOGD(TAG, "mic rms %.0f peak %d",
+                         __builtin_sqrt((double)sum_sq / (chunk * channels)),
+                         peak);
+            }
             s_afe_handle->feed(s_afe_data, buf);
         }
     }
@@ -94,9 +115,12 @@ esp_err_t afe_pipeline_init(void)
     }
 
     // Kconfig-Threshold (0-100) auf WakeNet-Range 0.0-1.0 mappen;
-    // Index 1 = erstes Wake Word.
+    // Index 1 = erstes Wake Word. 0 = Model-Default belassen
+    // (wn9_alexa: 0.64 — siehe Model-Info-String im Boot-Log).
+#if CONFIG_WAKE_WORD_THRESHOLD > 0
     s_afe_handle->set_wakenet_threshold(s_afe_data, 1,
                                         CONFIG_WAKE_WORD_THRESHOLD / 100.0f);
+#endif
 
     BaseType_t ok;
     ok = xTaskCreatePinnedToCore(afe_feed_task, "afe_feed", 4096, NULL, 5,

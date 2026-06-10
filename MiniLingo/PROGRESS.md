@@ -15,7 +15,7 @@
 |-------|--------------|--------|---------------|
 | 0 | Hardware-Komponententests (Mic, Amp, Display, Touch) | ✅ erledigt | Siehe [COMPONENT_TESTS.md](COMPONENT_TESTS.md), 2026-06-10 |
 | 1 | Projekt-Skelett + LVGL + UI-Mockup | ✅ erledigt | 2026-06-10, am Gerät verifiziert (UI, Touch, Scrolling) |
-| 2 | WiFi + esp-sr + Wake Word | 🟡 implementiert | 2026-06-10, gebaut + geflasht, Pipeline läuft; Sprachtest ("Alexa") + echte WiFi-Credentials ausstehend |
+| 2 | WiFi + esp-sr + Wake Word | ✅ erledigt | 2026-06-10, Wake Word am Gerät verifiziert (3/3 Detections); WiFi-Code steht, braucht aber noch die 2,4-GHz-SSID |
 | 3 | Audio-Capture + Recording-Buffer | ⬜ offen | |
 | 4 | MultiNet + Lokale Commands | ⬜ offen | |
 | 5 | Groq Whisper Integration | ⬜ offen | |
@@ -52,17 +52,23 @@ Feed-Task mit 512-Sample-Chunks). Aufbau:
   State-Text "Listening...", lokale Bubble; Reset nach 3s, bis Phase 3
   echtes Capture bringt). Dummy-Bubbles aus Phase 1 entfernt.
 
-**Nächster Schritt:** Acceptance-Test Phase 2 durch Christian:
-1. `idf.py menuconfig` → "MiniLingo Configuration" → echte WiFi-SSID +
-   Passwort eintragen, `idf.py -p /dev/cu.usbmodem2101 flash monitor`.
-2. "Alexa" sagen → Mic-Button muss rot werden, Log "Wake word
-   detected". Falls unempfindlich: `SAMPLE_SHIFT` in `audio_in.c`
-   (aktuell 14) bzw. `WAKE_WORD_THRESHOLD` justieren.
-Danach Phase 3 (Audio-Capture + Recording-Buffer + VAD-Stop + WAV).
+**Acceptance-Test Phase 2 (2026-06-10):** "Alexa" wurde 3/3 Mal
+erkannt (Log `Wake word detected`, Ruhe-RMS 10–30, Sprache 250–400).
+Wichtig war, den WakeNet-Threshold auf dem **Model-Default (0.64)** zu
+belassen — der erste Versuch mit 0.8 erkannte nichts
+(`WAKE_WORD_THRESHOLD=0` heißt jetzt "Model-Default verwenden").
 
-**Offene Fragen/Blocker:** Wake-Word-Sprachtest und WiFi mit echten
-Credentials stehen aus (Platzhalter "yourwifi" → reason 201 im Log ist
-erwartet). Touch-Feinkalibrierung weiterhin optional.
+**Nächster Schritt:**
+1. WiFi: in `idf.py menuconfig` die **2,4-GHz-SSID** eintragen — die
+   zuerst eingetragene `HUAWEI-..._5G_Wi-Fi5` ist das 5-GHz-Netz, das
+   der ESP32-S3 nicht kann (daher reason 201 = NO_AP_FOUND im Log).
+2. Phase 3 starten: Audio-Capture in PSRAM-Recording-Buffer im
+   `afe_fetch_task` (Frames nach Wake Word), VAD-Stop nach 1,5s
+   Stille / 8s Hard-Limit, `wav.c` mit WAV-Header, Test via
+   UART/SPIFFS-Export in Audacity.
+
+**Offene Fragen/Blocker:** nur die 2,4-GHz-WiFi-Credentials (s.o.).
+Touch-Feinkalibrierung weiterhin optional.
 
 ---
 

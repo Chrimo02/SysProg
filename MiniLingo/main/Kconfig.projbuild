@@ -23,11 +23,12 @@ menu "MiniLingo Configuration"
             Available: Kore, Puck, Charon, Fenrir, Aoede
 
     config WAKE_WORD_THRESHOLD
-        int "WakeNet detection threshold (0-100)"
-        default 80
+        int "WakeNet detection threshold (0-100, 0 = model default)"
+        default 0
         help
-            Hoeher = strenger (weniger False-Positives, aber das Wake
-            Word muss deutlicher gesprochen werden). Wird in der
-            AFE-Config auf 0.0-1.0 skaliert.
+            0 = Default des Models verwenden (wn9_alexa: 0.64).
+            Sonst: hoeher = strenger (weniger False-Positives, aber
+            das Wake Word muss deutlicher gesprochen werden). Wird
+            auf 0.0-1.0 skaliert.
 
 endmenu
