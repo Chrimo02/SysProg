@@ -17,7 +17,7 @@
 | 1 | Projekt-Skelett + LVGL + UI-Mockup | ✅ erledigt | 2026-06-10, am Gerät verifiziert (UI, Touch, Scrolling) |
 | 2 | WiFi + esp-sr + Wake Word | ✅ erledigt | 2026-06-10, am Gerät verifiziert: Wake Word 3/3 Detections, WiFi verbindet (2,4-GHz-SSID) |
 | 3 | Audio-Capture + Recording-Buffer | ✅ erledigt | 2026-06-10, am Gerät verifiziert: WAV via UART-Dump extrahiert, Sprache anhörbar |
-| 4 | MultiNet + Lokale Commands | ⬜ offen | |
+| 4 | MultiNet + Lokale Commands | 🟡 implementiert | 2026-06-10, geflasht, Boot-Log sauber (mn7_en + SPIFFS ok); Sprachtest (Acceptance) ausstehend |
 | 5 | Groq Whisper Integration | ⬜ offen | |
 | 6 | Gemini Flash Integration | ⬜ offen | |
 | 7 | Gemini TTS + Wiedergabe | ⬜ offen | |
@@ -29,46 +29,57 @@
 
 ## Aktueller Stand / Nächster Schritt
 
-**Stand 2026-06-10 (Session 4):** Phase 3 implementiert, gebaut und
-geflasht — Boot-Log sauber (`recording buffer ready (250 KB PSRAM,
-max 8000 ms)`, AFE-Pipeline läuft). Aufbau:
+**Stand 2026-06-10 (Session 5):** Phase 4 implementiert, gebaut und
+geflasht (inkl. SPIFFS-Image). Boot-Log sauber: `mn7_en ready: 14
+commands, chunk 512 samples`, `SPIFFS mounted, 0 canned file(s)
+missing`, AFE-Pipeline läuft. Aufbau:
 
-- `main/speech/recorder.c`: 256-KB-Recording-Buffer im PSRAM
-  (8s @ 16kHz @ 16bit + 44-Byte-Header-Platz). `afe_fetch_task`
-  startet das Capture beim Wake Word (das Detection-Frame selbst wird
-  übersprungen, es enthält noch das Wake-Word-Ende) und feedet dann
-  jeden AFE-Frame; `vad_cache` wird vorangestellt (vom VAD
-  zurückgehaltener Sprachanfang). Stop bei 1,5s zusammenhängender
-  Stille (`res->vad_state`) oder 8s-Hard-Limit.
-- `main/speech/wav.c`: 44-Byte-RIFF-Header, wird bei Capture-Ende vor
-  die Samples geschrieben → Buffer ist upload-fertig für Phase 5.
-- `main/debug/wav_dump.c` (`CONFIG_RECORDING_WAV_DUMP`, Default an):
-  dumpt den fertigen WAV-Buffer Base64-codiert über UART (eigener
-  Task Prio 2/Core 0, blockiert die Pipeline nicht; ~30s bei 115200
-  Baud). `tools/extract_wav.py` extrahiert die .wav aus dem
-  Monitor-Log. Ab Phase 5 abschalten.
-- `main.c`: Mic-Button bleibt rot bis Capture-Ende (3s-Reset-Hack aus
-  Phase 2 entfernt), danach lokale Bubble "Captured X.Xs audio (Y KB)".
-  Recorder-Callback läuft im afe_fetch_task → atomare Flags wie gehabt.
+- `main/speech/commands.c`: MultiNet7-EN aus der model-Partition,
+  14 Commands (Spec Section 7), Timeout 6s. Der `afe_fetch_task`
+  feedet MultiNet parallel zum Recorder (gleiche Frames inkl.
+  `vad_cache`); ein Sammel-Buffer puffert auf die MultiNet-
+  Chunk-Größe (derzeit identisch zur AFE-Chunk-Größe, 512 Samples).
+  Match → `on_local_command()` in `main.c` (verwirft die Aufnahme per
+  `recorder_abort()`, führt den Handler aus, spielt die
+  Canned-Response); MultiNet-Timeout → Aufnahme läuft weiter und ist
+  ab Phase 5 der Cloud-Pfad.
+- `main/local/timer.c`: Kitchen-Timer als One-Shot-`esp_timer`,
+  Restzeit aus gespeicherter Deadline (atomar) → Status-Bar zeigt
+  `Timer: MM:SS` (LVGL-Timer in `main.c`). Bei Ablauf: Canned
+  "Your timer is done." + Alarm-Beeps.
+- `main/local/volume.c` + `main/drivers/audio_out.c`: I2S1/MAX98357A
+  (Pins aus `amp_test.c`), Lautstärke als Q15-Software-Gain über die
+  Samples, Stufen 0–100% in 20er-Schritten, mute merkt sich den
+  vorherigen Wert. Rate pro File umschaltbar (16k canned / 24k
+  Gemini-TTS ab Phase 7).
+- `main/local/canned_audio.c`: SPIFFS-Partition `storage` gemountet,
+  Player-Task (= `audio_out_task` der Spec, Prio 5/Core 1) streamt
+  WAVs chunk-weise; Queue Tiefe 4, `canned_audio_stop()` für den
+  "stop"-Command. WAV-Parser läuft chunk-weise (RIFF), weil afconvert
+  einen FLLR-Chunk vor `data` einfügt.
+- `scripts/generate_canned_tts.py`: erzeugt die 13 Phrasen + Alarm
+  nach `spiffs/` (~630 KB, 16 kHz mono). Engine `gemini` (Spec) oder
+  `say` (macOS, offline) — mangels `GEMINI_API_KEY` aktuell mit `say`
+  generiert; mit Key einfach neu laufen lassen. SPIFFS-Image wird via
+  `spiffs_create_partition_image` bei `idf.py flash` mitgeflasht.
+- `main.c`: Command-Dispatch + UI-Events (grüne Local-Bubble pro
+  Command, Mic-Button kurz grün, Volume-Anzeige, Timer-Countdown).
 
-**Acceptance-Test Phase 3 (2026-06-10): bestanden.** WAV via
-`idf.py monitor | tee monitor.log` + `tools/extract_wav.py`
-extrahiert, Aufnahme anhörbar und verständlich. Der erste Lauf
-schlug fehl (96 Bytes fehlten): der Task-Watchdog (Dump-Task
-busy-waitet auf die UART-FIFO, IDLE0 verhungert) und interleavte
-WiFi-Logs schrieben mitten in die Base64-Zeilen. Fix: `vTaskDelay(1)`
-pro Dump-Zeile + Logs während des Dumps stummschalten;
-`extract_wav.py` erkennt korrupte Zeilen jetzt an der Zeilenlänge.
+**Acceptance-Test Phase 4 (ausstehend):** "Alexa" → "set timer five
+minutes" → Bestätigungsansage, Status-Bar zählt runter, am Ende
+Alarm. Außerdem prüfen: "stop timer"/"cancel timer", "how much time
+left", "volume up/down", "mute"/"unmute", "stop" (bricht den Alarm
+ab) und dass freie Sätze weiterhin als Capture enden ("Captured
+X.Xs"-Bubble, MultiNet-Timeout-Log).
 
-**Nächster Schritt:** Phase 4 — MultiNet7-EN laden (Model liegt schon
-in der model-Partition), 14 lokale Commands (`commands.c`), `timer.c`,
-`volume.c`, Canned-TTS-WAVs generieren (`scripts/
-generate_canned_tts.py`) + SPIFFS (`canned_audio.c`).
-`CONFIG_RECORDING_WAV_DUMP` kann vorerst an bleiben (stört nur durch
-die ~30s Dump-Zeit nach jedem Capture); spätestens ab Phase 5
-abschalten.
+**Nächster Schritt:** Acceptance-Test Phase 4 am Gerät (siehe oben),
+dann Phase 5 — Groq Whisper (`whisper.c`, Multipart-Upload des
+Recording-Buffers, `esp_crt_bundle`); `GROQ_API_KEY` in menuconfig
+setzen und `CONFIG_RECORDING_WAV_DUMP` abschalten.
 
-**Offene Fragen/Blocker:** keine. Touch-Feinkalibrierung weiterhin
+**Offene Fragen/Blocker:** keine. Canned-WAVs sind vorerst
+macOS-`say`-Stimme statt Gemini-TTS (kein API-Key konfiguriert) —
+für Phase 4 funktional gleichwertig. Touch-Feinkalibrierung weiterhin
 optional. Hinweise aus Phase 2, die weiter gelten: WakeNet-Threshold
 auf Model-Default (0.64) belassen; ESP32-S3 kann nur 2,4-GHz-WiFi
 (5-GHz-SSID → reason 201).
@@ -103,6 +114,21 @@ auf Model-Default (0.64) belassen; ESP32-S3 kann nur 2,4-GHz-WiFi
 - **INMP441-Pegel**: 32→16-bit-Wandlung in `audio_in.c` mit Shift 14
   statt neutral 16 (= +12 dB, mit Sättigung), da das Mic leise ist.
   Tuning-Punkt, falls Wake-Word-Erkennung zu un-/übersensibel ist.
+- **"how much time left" (Command 9) sagt keine variable Restzeit an**:
+  Canned-Phrasen sind fix, deshalb spielt der Command "The remaining
+  time is on the display." und die exakte Zeit steht in Bubble +
+  Status-Bar. Echte Ansage wäre erst mit Cloud-TTS (Phase 7) möglich.
+- **Canned-Files erweitert ggü. Spec-Liste** (Section 7):
+  zusätzlich `tts_timer_set_30s`, `tts_no_timer` (stop/cancel/time-left
+  ohne laufenden Timer), `tts_time_left`, `tts_unmuted`, `tts_alarm`
+  (synthetische Beeps, hängt nach `tts_timer_done` dran). Die
+  Dateinamen-Konstanten leben in `main/local/canned_audio.h`, die
+  Phrasen in `scripts/generate_canned_tts.py`.
+- **Model-Liste wird einmal in `main.c` geladen** (`esp_srmodel_init`)
+  und an `commands_init()` (MultiNet) und `afe_pipeline_init(models)`
+  (WakeNet/AFE) gereicht — Commands müssen vor dem Pipeline-Start
+  initialisiert sein, weil der fetch-Task sie ab dem ersten Wake Word
+  füttert.
 
 ---
 
