@@ -19,7 +19,7 @@
 | 3 | Audio-Capture + Recording-Buffer | ✅ erledigt | 2026-06-10, am Gerät verifiziert: WAV via UART-Dump extrahiert, Sprache anhörbar |
 | 4 | MultiNet + Lokale Commands | ✅ erledigt | 2026-06-11, User-Test ok bis auf "thirty minutes" (niedrige Prio, s.u.) |
 | 5 | Groq Whisper Integration | ✅ erledigt | 2026-06-12, User-Test bestanden (inkl. Touch-Trigger + Farb-Fix, Transkript-Bubble ok) |
-| 6 | Gemini Flash Integration | ⬜ offen | |
+| 6 | Gemini Flash Integration | ✅ erledigt | 2026-06-12, per Lautsprecher-Test verifiziert (2 Runden inkl. History-Follow-up); User-Test ausstehend |
 | 7 | Gemini TTS + Wiedergabe | ⬜ offen | |
 | 8 | Polish + Robustness | ⬜ offen | |
 | 9 (optional) | AEC | ⬜ offen | |
@@ -28,6 +28,52 @@
 ---
 
 ## Aktueller Stand / Nächster Schritt
+
+**Stand 2026-06-12 (Session 8): Phase 6 implementiert, geflasht und
+per Lautsprecher-Test verifiziert.** Whisper-Transkripte gehen jetzt
+an Gemini 2.5 Flash, die Antwort erscheint als Assistant-Bubble.
+Testdialog (2 Runden): "Wie heißt die Hauptstadt von Australien?" →
+"Die Hauptstadt von Australien ist Canberra." (1,3 s); Follow-up
+"Und wie viele Einwohner hat diese Stadt?" → "Canberra hat etwa
+460.000 Einwohner." (0,8 s) — **der History-Ringpuffer löst den
+Kontextbezug korrekt auf**. Aufbau:
+
+- `main/network/gemini.c`: JSON-Request per cJSON (systemInstruction
+  aus Spec Section 9.4, contents = History + neuer User-Turn,
+  maxOutputTokens 200, temperature 0.7), Antwort aus
+  `candidates[0].content.parts[].text`, trailing Whitespace getrimmt.
+- `main/state.c`: History-Ringpuffer (10 Turns à 1 KB, PSRAM),
+  Zugriff nur im network_task. Gepusht wird erst NACH erfolgreichem
+  Gemini-Call (User+Model als Paar) — bei Fehlern bleibt die History
+  konsistent.
+- `main/network/cloud.c`: network_task hängt Gemini sequenziell an
+  Whisper an (TLS nie parallel); neues `CLOUD_EVT_REPLY`. `main.c`:
+  PROCESSING bleibt bis zur Gemini-Antwort stehen, dann
+  Assistant-Bubble + Mic-Button idle.
+- `main/network/http_util.c`: `write_all`/`read_body` aus whisper.c
+  herausgezogen, nutzen jetzt beide Clients.
+- **`thinkingConfig.thinkingBudget = 0`** im Request: gemini-2.5-flash
+  "denkt" per Default — das kostet Latenz und würde das
+  200-Token-Budget auffressen (leere Antwort mit
+  finishReason=MAX_TOKENS). Mit Budget 0 antwortet Flash in 0,6–1,3 s.
+
+**Beobachtung aus dem Test (Phase-8-Kandidat):** Bei einem
+Fehlversuch (Frage kam erst nach dem 1,5-s-Stille-Cutoff) halluzinierte
+Whisper aus der fast leeren Aufnahme **"Vielen Dank."** (klassische
+Whisper-Stille-Halluzination), Gemini antwortete artig "Gern
+geschehen!". Falls das im Alltag auftritt: Aufnahmen, die der Recorder
+als (nahezu) reine Stille beendet, gar nicht erst hochladen.
+Außerdem erneut ein MultiNet-False-Positive ("stop", prob 0.09, fraß
+einen Query) — bekanntes Problem, siehe Session 7. Und: echte
+Gemini-Antworten enthalten Umlaute — der ASCII-Font (Montserrat 14)
+zeigt die nicht an; der Custom-Font (Phase 8) wird damit drängender.
+
+**Nächster Schritt:** Phase 7 — Gemini TTS + Wiedergabe (`tts.c`:
+`responseModalities=AUDIO`, Response in PSRAM, Base64-Decode → PCM
+24 kHz über `audio_out`; WakeNet während SPEAKING aus; "stop" bricht
+ab). Einstiegspunkt wieder `network_task` in `main/network/cloud.c`.
+
+---
 
 **Stand 2026-06-12 (Session 7): Phase 5 implementiert, geflasht und
 per Lautsprecher-Test verifiziert.** Freie Fragen landen nach dem
@@ -86,10 +132,8 @@ Recorder den vad_cache wirklich braucht).
 Farben stimmen jetzt (User-Bubble blau, Listening rot), Transkript
 erscheint als Bubble. Phase 5 damit komplett.
 
-**Nächster Schritt:** Phase 6 — Gemini Flash (`gemini.c`,
-JSON-Request mit System-Instruction + History-Ringpuffer in
-`state.c`, Antwort als Assistant-Bubble). Der Einstiegspunkt ist
-`on_cloud_event()`/`network_task` in `main/network/cloud.c`.
+*(Nächster Schritt von damals — Phase 6, Gemini Flash — ist erledigt,
+siehe Session 8 oben.)*
 
 ---
 
@@ -301,6 +345,19 @@ end-to-end.
 - **Das ILI9341-Panel ist BGR** (`ESP_LCD_COLOR_SPACE_BGR` in
   `display.c`, 2026-06-12): mit RGB waren Rot und Blau vertauscht.
   Unabhaengig vom Endianness-Byte-Swap im Flush-Callback.
+- **`state.c` enthält nur den History-Ringpuffer** (Phase 6): die
+  State-Machine aus Spec Section 8 ist weiterhin als atomare Flags in
+  `main.c` umgesetzt (Entscheidung aus Phase 5). Kein Locking — alle
+  History-Zugriffe laufen im network_task.
+- **Gemini-Thinking abgeschaltet** (`thinkingBudget: 0`, Phase 6,
+  steht nicht in der Spec): gemini-2.5-flash ist ein Thinking-Model
+  mit dynamischem Default — ohne das Abschalten frisst das Denken
+  Latenz und das maxOutputTokens-Budget (leere Antwort mit
+  finishReason=MAX_TOKENS möglich). Konstante in
+  `main/network/gemini.c`.
+- **History nur mit vollständigen Paaren**: User- und Model-Turn
+  werden erst nach erfolgreichem Gemini-Call gepusht; ein
+  fehlgeschlagener Request hinterlässt keinen halben Turn.
 - **Touch-Trigger (Mic-Button) ist implementiert** (2026-06-12; in
   der Spec als Trigger vorgesehen, aber keiner Phase zugeordnet):
   LVGL-Klick -> `afe_pipeline_request_listening()` (atomares Flag)
