@@ -11,6 +11,7 @@
 #include "esp_log.h"
 #include "sdkconfig.h"
 
+#include "http_util.h"
 #include "whisper.h"
 
 static const char *TAG = "whisper";
@@ -42,39 +43,6 @@ static const char *PART_FMT =
     "Content-Type: audio/wav\r\n\r\n";
 
 static const char *EPILOGUE = "\r\n--" BOUNDARY "--\r\n";
-
-// esp_http_client_write schreibt ggf. weniger als angefordert.
-static esp_err_t write_all(esp_http_client_handle_t client,
-                           const char *data, size_t len)
-{
-    while (len > 0) {
-        int n = esp_http_client_write(client, data, (int)len);
-        if (n <= 0) {
-            ESP_LOGE(TAG, "upload write failed");
-            return ESP_FAIL;
-        }
-        data += n;
-        len -= (size_t)n;
-    }
-    return ESP_OK;
-}
-
-// Liest den Response-Body (bis buf_len-1 Bytes) und nul-terminiert.
-static int read_body(esp_http_client_handle_t client, char *buf,
-                     size_t buf_len)
-{
-    size_t total = 0;
-    while (total < buf_len - 1) {
-        int n = esp_http_client_read(client, buf + total,
-                                     (int)(buf_len - 1 - total));
-        if (n <= 0) {
-            break;
-        }
-        total += (size_t)n;
-    }
-    buf[total] = '\0';
-    return (int)total;
-}
 
 static esp_err_t parse_transcript(const char *json, char *text,
                                   size_t text_len)
@@ -147,12 +115,12 @@ esp_err_t whisper_transcribe(const uint8_t *wav, size_t wav_bytes,
     }
 
     int64_t t0 = esp_log_timestamp();
-    err = write_all(client, prologue, (size_t)prologue_len);
+    err = http_write_all(client, prologue, (size_t)prologue_len);
     if (err == ESP_OK) {
-        err = write_all(client, (const char *)wav, wav_bytes);
+        err = http_write_all(client, (const char *)wav, wav_bytes);
     }
     if (err == ESP_OK) {
-        err = write_all(client, EPILOGUE, strlen(EPILOGUE));
+        err = http_write_all(client, EPILOGUE, strlen(EPILOGUE));
     }
 
     char body[RESPONSE_MAX];
@@ -163,7 +131,7 @@ esp_err_t whisper_transcribe(const uint8_t *wav, size_t wav_bytes,
             err = ESP_FAIL;
         } else {
             status = esp_http_client_get_status_code(client);
-            read_body(client, body, sizeof(body));
+            http_read_body(client, body, sizeof(body));
         }
     }
     esp_http_client_close(client);

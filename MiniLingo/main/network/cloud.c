@@ -1,6 +1,7 @@
 // network_task (Spec Section 8): fuehrt die Cloud-Requests sequenziell
 // aus — nie zwei TLS-Verbindungen parallel (Heap, Spec Section 13).
-// Phase 5: Whisper-Transkription; Gemini/TTS folgen in Phase 6/7.
+// Phase 5: Whisper-Transkription; Phase 6: Gemini-Antwort; TTS folgt
+// in Phase 7.
 #include <stdatomic.h>
 
 #include "freertos/FreeRTOS.h"
@@ -10,13 +11,17 @@
 #include "esp_log.h"
 
 #include "network/wifi.h"
+#include "state.h"
 #include "whisper.h"
+#include "gemini.h"
 #include "cloud.h"
 
 static const char *TAG = "cloud";
 
 // Transkript-Maximum: 8 s Sprache sind << 512 Zeichen.
 #define TRANSCRIPT_MAX 512
+// Gemini-Antwort: maxOutputTokens=200 bleibt unter 1 KB Text.
+#define REPLY_MAX 1024
 
 typedef struct {
     const uint8_t *wav;
@@ -33,6 +38,7 @@ static void network_task(void *arg)
 {
     cloud_job_t job;
     static char text[TRANSCRIPT_MAX];
+    static char reply[REPLY_MAX];
 
     while (1) {
         xQueueReceive(s_queue, &job, portMAX_DELAY);
@@ -41,10 +47,21 @@ static void network_task(void *arg)
             ESP_LOGW(TAG, "no WiFi, dropping query");
             s_cb(CLOUD_EVT_ERROR, "No WiFi connection");
         } else if (whisper_transcribe(job.wav, job.bytes, text,
-                                      sizeof(text)) == ESP_OK) {
-            s_cb(CLOUD_EVT_TRANSCRIPT, text);
-        } else {
+                                      sizeof(text)) != ESP_OK) {
             s_cb(CLOUD_EVT_ERROR, "Transcription failed");
+        } else {
+            s_cb(CLOUD_EVT_TRANSCRIPT, text);
+            // Gemini direkt im Anschluss — die Whisper-Verbindung ist
+            // hier schon geschlossen (TLS strikt sequenziell).
+            if (gemini_generate(text, reply, sizeof(reply)) == ESP_OK) {
+                // History erst bei Erfolg fortschreiben: sie enthaelt
+                // nur vollstaendige User/Model-Paare.
+                chat_history_push(CHAT_ROLE_USER, text);
+                chat_history_push(CHAT_ROLE_MODEL, reply);
+                s_cb(CLOUD_EVT_REPLY, reply);
+            } else {
+                s_cb(CLOUD_EVT_ERROR, "Assistant failed");
+            }
         }
 
         // Erst nach dem Callback freigeben: solange busy, startet kein
@@ -55,6 +72,10 @@ static void network_task(void *arg)
 
 esp_err_t cloud_init(cloud_event_cb_t cb)
 {
+    esp_err_t err = chat_history_init();
+    if (err != ESP_OK) {
+        return err;
+    }
     s_cb = cb;
     s_queue = xQueueCreate(1, sizeof(cloud_job_t));
     if (!s_queue) {

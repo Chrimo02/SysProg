@@ -6,11 +6,12 @@
 
 #include "esp_err.h"
 
-// Cloud-Pipeline (Spec "network_task"): Phase 5 nur Whisper (STT);
-// Gemini (Phase 6) und TTS (Phase 7) haengen sich hier an.
+// Cloud-Pipeline (Spec "network_task"): Whisper-STT (Phase 5) +
+// Gemini-LLM (Phase 6); TTS (Phase 7) haengt sich hier an.
 
 typedef enum {
     CLOUD_EVT_TRANSCRIPT,  // text = Whisper-Transkript
+    CLOUD_EVT_REPLY,       // text = Gemini-Antwort
     CLOUD_EVT_ERROR,       // text = kurze Fehlerbeschreibung (fuer UI)
 } cloud_event_type_t;
 

@@ -3,6 +3,7 @@
 # werden nicht mitgebaut — sie dienen als Referenz.
 idf_component_register(
     SRCS "main.c"
+         "state.c"
          "drivers/display.c"
          "drivers/touch.c"
          "drivers/audio_in.c"
@@ -12,7 +13,9 @@ idf_component_register(
          "local/volume.c"
          "network/wifi.c"
          "network/cloud.c"
+         "network/http_util.c"
          "network/whisper.c"
+         "network/gemini.c"
          "debug/wav_dump.c"
          "speech/afe_pipeline.c"
          "speech/commands.c"

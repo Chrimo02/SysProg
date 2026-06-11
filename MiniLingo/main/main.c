@@ -1,11 +1,11 @@
-// MiniLingo Phase 5: Groq Whisper (Cloud-STT).
+// MiniLingo Phase 6: Gemini Flash (Cloud-LLM).
 // app_main initialisiert LVGL/Display/Touch/UI (Phase 1), NVS, WiFi-STA,
 // die AFE-Pipeline mit WakeNet9-Mycroft (Phase 2; bis 2026-06-11
 // Alexa), den Recording-Buffer (Phase 3), MultiNet7-EN mit 14 lokalen
 // Commands, Kitchen-Timer, Lautstaerke und Canned-TTS aus SPIFFS
-// (Phase 4) und neu: den network_task, der Aufnahmen ohne lokalen
-// Command-Match an Groq Whisper schickt (Phase 5) — das Transkript
-// erscheint als User-Bubble.
+// (Phase 4) und den network_task, der Aufnahmen ohne lokalen
+// Command-Match an Groq Whisper schickt (Phase 5, User-Bubble) und das
+// Transkript an Gemini weiterreicht (Phase 6, Assistant-Bubble).
 //
 // Thread-Grenzen: WiFi-Events (Event-Loop-Task), Wake-Word-, Recorder-
 // und Command-Events (afe_fetch_task, Core 1) sowie Timer-Done
@@ -54,14 +54,16 @@ static atomic_bool s_wake_event;
 static atomic_int s_cmd_event;
 static atomic_int s_cmd_arg;
 static atomic_bool s_timer_done_event;
-// Cloud-Pipeline (Phase 5): processing = Upload gestartet
-// (afe_fetch_task), transcript/error = Ergebnis da (network_task).
+// Cloud-Pipeline (Phase 5/6): processing = Upload gestartet
+// (afe_fetch_task), transcript/reply/error = Ergebnis da (network_task).
 // Die Textbuffer werden jeweils VOR dem Flag geschrieben; es ist nur
 // ein Cloud-Query gleichzeitig in flight (cloud_is_busy-Gate).
 static atomic_bool s_processing_event;
 static atomic_bool s_transcript_event;
+static atomic_bool s_reply_event;
 static atomic_bool s_cloud_error_event;
 static char s_transcript[512];
+static char s_reply[1024];
 static char s_cloud_error[48];
 
 // Cloud-Pfad-Koordination, nur im afe_fetch_task: Upload erst, wenn
@@ -159,6 +161,9 @@ static void on_cloud_event(cloud_event_type_t type, const char *text)
     if (type == CLOUD_EVT_TRANSCRIPT) {
         snprintf(s_transcript, sizeof(s_transcript), "%s", text);
         atomic_store(&s_transcript_event, true);
+    } else if (type == CLOUD_EVT_REPLY) {
+        snprintf(s_reply, sizeof(s_reply), "%s", text);
+        atomic_store(&s_reply_event, true);
     } else {
         snprintf(s_cloud_error, sizeof(s_cloud_error), "%s", text);
         atomic_store(&s_cloud_error_event, true);
@@ -341,8 +346,12 @@ static void app_event_timer_cb(lv_timer_t *timer)
 
     if (atomic_exchange(&s_transcript_event, false)) {
         ui_chat_add_user_bubble(s_transcript);
-        // Phase 5 endet hier; ab Phase 6 bleibt PROCESSING stehen,
-        // bis die Gemini-Antwort da ist.
+        // PROCESSING bleibt stehen — Gemini laeuft noch (Phase 6).
+    }
+
+    if (atomic_exchange(&s_reply_event, false)) {
+        ui_chat_add_assistant_bubble(s_reply);
+        // Phase 6 endet hier; ab Phase 7 folgt SPEAKING (TTS).
         s_processing = false;
         ui_mic_button_set_state(UI_MIC_IDLE);
     }
@@ -379,7 +388,7 @@ static void app_event_timer_cb(lv_timer_t *timer)
 
 void app_main(void)
 {
-    ESP_LOGI(TAG, "MiniLingo Phase 5 starting");
+    ESP_LOGI(TAG, "MiniLingo Phase 6 starting");
 
     esp_err_t err = nvs_flash_init();
     if (err == ESP_ERR_NVS_NO_FREE_PAGES ||
@@ -405,7 +414,7 @@ void app_main(void)
 
     ESP_ERROR_CHECK(wifi_init(on_wifi_status));
 
-    // Cloud-Pipeline (Phase 5): network_task vor der AFE-Pipeline
+    // Cloud-Pipeline (Phase 5/6): network_task vor der AFE-Pipeline
     // starten — der afe_fetch_task ruft cloud_submit/cloud_is_busy.
     ESP_ERROR_CHECK(cloud_init(on_cloud_event));
 
@@ -428,5 +437,5 @@ void app_main(void)
                                   on_command_timeout));
     ESP_ERROR_CHECK(afe_pipeline_init(models));
 
-    ESP_LOGI(TAG, "Phase 5 up: local commands + cloud STT");
+    ESP_LOGI(TAG, "Phase 6 up: local commands + cloud STT + LLM");
 }
