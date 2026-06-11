@@ -20,7 +20,7 @@
 | 4 | MultiNet + Lokale Commands | ✅ erledigt | 2026-06-11, User-Test ok bis auf "thirty minutes" (niedrige Prio, s.u.) |
 | 5 | Groq Whisper Integration | ✅ erledigt | 2026-06-12, User-Test bestanden (inkl. Touch-Trigger + Farb-Fix, Transkript-Bubble ok) |
 | 6 | Gemini Flash Integration | ✅ erledigt | 2026-06-12, User-Test bestanden (Lautsprecher-Test davor: 2 Runden inkl. History-Follow-up) |
-| 7 | Gemini TTS + Wiedergabe | ⬜ offen | |
+| 7 | Gemini TTS + Wiedergabe | 🟡 implementiert | 2026-06-12; E2E-Test am Gerät blockiert: TTS-Tageslimit (10 Req./Tag) erschöpft — Hörtest + User-Test stehen aus, s.u. |
 | 8 | Polish + Robustness | ⬜ offen | |
 | 9 (optional) | AEC | ⬜ offen | |
 | 10 | Function-Calling für freie Timer-Werte | ⬜ offen | **Nicht mehr optional** — User-Anforderung 2026-06-11: jede gewünschte Sekunden-/Minutenzahl muss über Gemini-Function-Calls funktionieren (MultiNet kann nur das feste 6er-Set) |
@@ -28,6 +28,61 @@
 ---
 
 ## Aktueller Stand / Nächster Schritt
+
+**Stand 2026-06-12 (Session 9): Phase 7 implementiert und geflasht;
+der finale Hörtest ist durch das Gemini-TTS-Tageslimit blockiert.**
+Die Free-Tier-Quota für `gemini-2.5-flash-tts` ist **10 Requests/Tag**
+(per curl verifiziert: 429, `GenerateRequestsPerDayPerProjectPerModel-
+FreeTier, quotaValue 10` — deutlich weniger als die angenommenen ~15)
+und war nach 2 Test-Calls erschöpft. Aufbau:
+
+- `main/network/tts.c`: TTS-Request nach Spec Section 9.5
+  (`responseModalities=AUDIO`, Voice aus `GEMINI_VOICE_NAME`),
+  Response-JSON (bis 1,5 MB) + dekodiertes PCM (bis 1 MB) in
+  statischen PSRAM-Buffern, `inlineData.data` per
+  `mbedtls_base64_decode`, Sample-Rate aus dem mimeType
+  (`audio/L16;codec=pcm;rate=24000`). HTTP 429 →
+  `ESP_ERR_NOT_ALLOWED` → UI-Bubble "Cloud: TTS daily limit"
+  (sonst "Speech failed").
+- `main/local/canned_audio.c`: Queue-Items sind jetzt ein struct
+  (SPIFFS-Name ODER roher PCM-Buffer); `canned_audio_play_pcm()`
+  blockiert per Done-Semaphore bis zum Wiedergabe-Ende. Dadurch
+  serialisieren sich Canned- und TTS-Wiedergabe im selben Player-Task
+  und `canned_audio_stop()` ("stop") bricht beides ab.
+- `main/network/cloud.c`: nach `CLOUD_EVT_REPLY` folgt
+  `speak_reply()` — TTS-Request, dann blockierende Wiedergabe; busy
+  bleibt bis zum Wiedergabe-Ende gesetzt (= kein neues Wake Word,
+  kein Self-Trigger). Neue Events `CLOUD_EVT_SPEAKING`/`CLOUD_EVT_DONE`,
+  neuer Getter `cloud_is_speaking()`.
+- `main/speech/afe_pipeline.c`: während SPEAKING läuft eine
+  MultiNet-Session mit (Neustart bei Match/6-s-Timeout, Ende mit der
+  Wiedergabe). `main.c` ignoriert dabei alle Matches außer `CMD_STOP`
+  (False-Positive-Schutz gegen das eigene Lautsprecher-Signal);
+  "stop" während SPEAKING stoppt nur die Wiedergabe, NICHT den
+  Küchen-Timer. UI: Mic-Button grün + "Speaking..." (SPEAKING), nach
+  DONE/ERROR zurück zu Idle.
+
+**Verifiziert am Gerät (Lautsprecher-Test):** Pipeline bis zum
+TTS-Call komplett — "Wie viele Planeten hat unser Sonnensystem?" →
+Whisper wortgenau → Gemini "Unser Sonnensystem hat acht Planeten."
+→ TTS-Request korrekt aufgebaut, 429 sauber abgefangen (Error-Bubble,
+zurück zu Idle, nächste Session startet normal). Der PCM-Wiedergabe-
+Pfad (Queue-Item, 24-kHz-Umschaltung, Done-Semaphore) ist per
+temporärem Sinus-Selbsttest am Gerät verifiziert (1 s Ton, exakt
+1000 ms, ESP_OK; Testcode wieder entfernt). Der TTS-Request selbst
+war vor dem Quota-Aus per curl verifiziert (200, Audio dekodierbar,
+Format exakt wie Spec 9.5). **Nicht getestet:** echtes TTS-Audio
+end-to-end am Gerät + "stop" während der Wiedergabe.
+
+**Nächster Schritt:** Sobald die Quota zurückgesetzt ist (täglich,
+Mitternacht Pacific ≈ 9 Uhr deutscher Zeit): Hörtest — Wake Word →
+Frage → gesprochene Antwort; "stop" während der Wiedergabe; danach
+User-Test. Achtung beim Testen: nur 10 TTS-Requests/Tag, jede freie
+Frage verbraucht einen. Das TODO "Canned-Voice-Samples männlich
+regenerieren" (unten) nutzt dieselbe Quota (gleiches TTS-Modell) —
+Stimmen-Proben und Phase-7-Tests besser nicht am selben Tag.
+
+---
 
 **Stand 2026-06-12 (Session 8): Phase 6 implementiert, geflasht und
 per Lautsprecher-Test verifiziert.** Whisper-Transkripte gehen jetzt
@@ -360,6 +415,23 @@ end-to-end.
 - **History nur mit vollständigen Paaren**: User- und Model-Turn
   werden erst nach erfolgreichem Gemini-Call gepusht; ein
   fehlgeschlagener Request hinterlässt keinen halben Turn.
+- **TTS-Wiedergabe läuft über die Canned-Audio-Queue** (Phase 7,
+  statt einer separaten tts_queue wie in Spec Section 9.5): ein
+  Player-Task = ein I2S-Schreiber, "stop" (canned_audio_stop) bricht
+  Canned UND TTS ab, und Alarm/TTS serialisieren sich automatisch.
+  `canned_audio_play_pcm()` blockiert den network_task bis zum
+  Wiedergabe-Ende — dadurch bleibt `cloud_is_busy()` während SPEAKING
+  gesetzt (kein neues Wake Word = kein Self-Trigger, Spec Section 13).
+- **Während SPEAKING akzeptiert MultiNet nur "stop"** (Phase 7): das
+  Mikrofon hört den eigenen Lautsprecher, und Threshold 0.05 ist
+  False-Positive-anfällig (siehe Session 7) — alle anderen Matches
+  werden in `on_local_command()` verworfen. "stop" stoppt dabei nur
+  die Wiedergabe, nicht den Küchen-Timer (anders als im IDLE, wo
+  "stop" als "stop timer" gilt).
+- **Gemini-TTS-Free-Tier: 10 Requests/Tag** (verifiziert 2026-06-12,
+  Quota `GenerateRequestsPerDayPerProjectPerModel-FreeTier`), nicht
+  ~15 wie zuvor angenommen. HTTP 429 → eigene UI-Meldung
+  "TTS daily limit"; Retry/Backoff kommt in Phase 8.
 - **Touch-Trigger (Mic-Button) ist implementiert** (2026-06-12; in
   der Spec als Trigger vorgesehen, aber keiner Phase zugeordnet):
   LVGL-Klick -> `afe_pipeline_request_listening()` (atomares Flag)
