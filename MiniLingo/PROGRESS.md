@@ -79,24 +79,60 @@ zwischenzeitlichen Brownout/USB-Ausfall (Bus-Kontention Mic gegen
 GPIO-15-Treiber). Merksatz: Bei "Mic liefert konstant Max" zuerst
 Pegel-Log auf INFO heben und Leitungen per GPIO-Toggle durchpruefen.
 
-**Acceptance-Test Phase 4 (ausstehend):** "Alexa" → "set timer five
-minutes" → Bestätigungsansage, Status-Bar zählt runter, am Ende
-Alarm. Außerdem prüfen: "stop timer"/"cancel timer", "how much time
-left", "volume up/down", "mute"/"unmute", "stop" (bricht den Alarm
-ab) und dass freie Sätze weiterhin als Capture enden ("Captured
-X.Xs"-Bubble, MultiNet-Timeout-Log).
+**MultiNet-Debugging (2026-06-11, Session 6):** Der erste Sprachtest
+zeigte drei Probleme; alle behoben (Tests per `say` über die
+Mac-Lautsprecher + Serial-Log, jeweils am Gerät verifiziert):
 
-**Nächster Schritt:** Acceptance-Test Phase 4 am Gerät (siehe oben),
-dann Phase 5 — Groq Whisper (`whisper.c`, Multipart-Upload des
-Recording-Buffers, `esp_crt_bundle`); `GROQ_API_KEY` in menuconfig
-setzen und `CONFIG_RECORDING_WAV_DUMP` abschalten.
+1. *"set timer X minutes" matchte nie.* Mehrstufige Diagnose
+   (Decoder-Rohtext + registrierte Phoneme geloggt): Das G2P-Token
+   `MgNcTS` ("minutes") ist im FST von mn7_en (esp-sr 2.4.6)
+   **defekt** — jede Phrase damit bleibt ewig im Detecting-State,
+   unabhängig von Threshold/Aliassen. Workaround in `commands.c`:
+   Plural-Phrasen als Phonem-Registrierung ohne Schluss-S
+   (`SfT TiMk FiV MgNcT`), das gesprochene S wird als Junk-Suffix
+   toleriert. Zusätzlich Kurz-Aliasse ("five minute timer") mit
+   akustisch korrektem `MgNcT` ("min-it" — die On-Device-G2P erzeugt
+   fälschlich `MgNoT` = "min-oot"). Verifiziert: five 3/3 (0.09–0.11),
+   ten/fifteen/one/thirty-seconds ✓.
+2. *MultiNet-Feintuning:* `vad_cache` geht nicht mehr an MultiNet
+   (überlappte mit schon gelieferten Frames → Decoder hörte doppelte
+   Phrasenanfänge "SfPSfT"); die MultiNet-Session läuft jetzt bis zum
+   eigenen Match/Timeout weiter statt mit dem Recorder-Ende zu sterben
+   (MultiNets Endpoint braucht bei langen Phrasen länger als 1,5s
+   Stille); Detection-Threshold explizit 0.05 (Timer-Phrasen matchen
+   systembedingt niedrig, 0.05–0.15; freie Sätze lösen damit weiterhin
+   nichts aus — bei 0.01 gab es False-Positives). Achtung:
+   `switch_loader_mode()` ist im quantisierten mn7_en ein
+   NULL-Pointer (Boot-Loop per InstrFetchProhibited) — nicht aufrufen.
+3. *Knattergeräusch nach jeder Wiedergabe:* ohne `auto_clear` loopt
+   der I2S-DMA den letzten Buffer endlos (`audio_out.c`: behoben).
+   *"stop timer" matcht als "stop":* MultiNet feuert nach "stop",
+   bevor "timer" dekodiert ist → `CMD_STOP` cancelt jetzt auch einen
+   laufenden Timer (main.c). *WAV-Dump deaktiviert* (sdkconfig) —
+   er schaltete nach jedem Capture 30s die Logs stumm; war eh ab
+   Phase 5 fällig.
 
-**Offene Fragen/Blocker:** keine. Canned-WAVs sind vorerst
-macOS-`say`-Stimme statt Gemini-TTS (kein API-Key konfiguriert) —
-für Phase 4 funktional gleichwertig. Touch-Feinkalibrierung weiterhin
-optional. Hinweise aus Phase 2, die weiter gelten: WakeNet-Threshold
-auf Model-Default (0.64) belassen; ESP32-S3 kann nur 2,4-GHz-WiFi
-(5-GHz-SSID → reason 201).
+**Acceptance-Test Phase 4 (per Mac-Lautsprecher bestanden, User-Test
+ausstehend):** "Alexa" → "set timer five minutes" → Ansage + Timer
+läuft. Verifiziert außerdem: "how much time left", "cancel timer",
+"stop", "volume up/down", "mute"/"unmute", freie Sätze → Timeout →
+Cloud-Pfad. Vom User zu testen: echte Stimme statt `say`, Countdown
+in der Status-Bar, Alarm nach Ablauf, "stop" während des Alarms.
+
+**Nächster Schritt:** User-Sprachtest Phase 4, dann Phase 5 — Groq
+Whisper (`whisper.c`, Multipart-Upload des Recording-Buffers,
+`esp_crt_bundle`). API-Keys (Groq + Gemini) sind seit 2026-06-11 in
+menuconfig gesetzt; Canned-WAVs mit Gemini-TTS (Voice Kore)
+regeneriert.
+
+**Offene Fragen/Blocker:** keine. Timer-Phrasen matchen mit niedrigen
+Wahrscheinlichkeiten (0.05–0.15) — falls beim User-Test einzelne
+Phrasen nicht greifen, zuerst Decoder-Rohtext loggen
+(`get_results()->raw_string` im Detecting-State) und Phonem-Alias
+ergänzen. Touch-Feinkalibrierung weiterhin optional. Hinweise aus
+Phase 2, die weiter gelten: WakeNet-Threshold auf Model-Default
+(0.64) belassen; ESP32-S3 kann nur 2,4-GHz-WiFi (5-GHz-SSID →
+reason 201).
 
 ---
 
@@ -143,6 +179,15 @@ auf Model-Default (0.64) belassen; ESP32-S3 kann nur 2,4-GHz-WiFi
   (WakeNet/AFE) gereicht — Commands müssen vor dem Pipeline-Start
   initialisiert sein, weil der fetch-Task sie ab dem ersten Wake Word
   füttert.
+- **Timer-Commands brauchen Phonem-Registrierung** (mn7_en-Bugs:
+  FST-Token `MgNcTS` defekt, G2P spricht "minute" als "min-oot") —
+  Details im Kommentarkopf von `main/speech/commands.c` und unter
+  "MultiNet-Debugging" oben. Zusätzlich zu den Spec-Phrasen gibt es
+  deshalb "X minute timer"-Aliasse; `esp_mn_commands_get_string()`
+  liefert fürs UI die Grapheme-Phrase des Matches.
+- **"stop" cancelt auch den laufenden Timer**: MultiNet matcht
+  "stop timer" oft schon nach "stop" (Endpoint vor "timer") — der
+  CMD_STOP-Handler in `main.c` deckt beide Intents ab.
 
 ---
 
