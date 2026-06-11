@@ -124,7 +124,7 @@ esp_err_t afe_pipeline_init(srmodel_list_t *models)
     }
 
     // "M" = 1 Mic-Kanal, 16 kHz. WakeNet-Model kommt automatisch aus
-    // der Model-Partition (einziges WakeNet: wn9_alexa), VAD ist im
+    // der Model-Partition (einziges einkompiliertes WakeNet), VAD ist im
     // AFE_TYPE_SR-Default aktiv, AEC bleibt aus (Phase 8).
     afe_config_t *cfg =
         afe_config_init("M", models, AFE_TYPE_SR, AFE_MODE_LOW_COST);
@@ -150,7 +150,7 @@ esp_err_t afe_pipeline_init(srmodel_list_t *models)
 
     // Kconfig-Threshold (0-100) auf WakeNet-Range 0.0-1.0 mappen;
     // Index 1 = erstes Wake Word. 0 = Model-Default belassen
-    // (wn9_alexa: 0.64 — siehe Model-Info-String im Boot-Log).
+    // (siehe Model-Info-String im Boot-Log).
 #if CONFIG_WAKE_WORD_THRESHOLD > 0
     s_afe_handle->set_wakenet_threshold(s_afe_data, 1,
                                         CONFIG_WAKE_WORD_THRESHOLD / 100.0f);

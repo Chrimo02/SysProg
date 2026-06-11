@@ -113,7 +113,7 @@ Mac-Lautsprecher + Serial-Log, jeweils am Gerät verifiziert):
    Phase 5 fällig.
 
 **Acceptance-Test Phase 4 (per Mac-Lautsprecher bestanden, User-Test
-ausstehend):** "Alexa" → "set timer five minutes" → Ansage + Timer
+ausstehend):** "Mycroft" → "set timer five minutes" → Ansage + Timer
 läuft. Verifiziert außerdem: "how much time left", "cancel timer",
 "stop", "volume up/down", "mute"/"unmute", freie Sätze → Timeout →
 Cloud-Pfad. Vom User zu testen: echte Stimme statt `say`, Countdown
@@ -135,8 +135,19 @@ ergänzen. User-Test 2026-06-11: alle Timer-Werte ok außer
 Phase 10 (Function-Calling, jetzt fest eingeplant) ohnehin beliebige
 Timer-Werte über die Cloud nachliefert. Touch-Feinkalibrierung weiterhin optional. Hinweise aus
 Phase 2, die weiter gelten: WakeNet-Threshold auf Model-Default
-(0.64) belassen; ESP32-S3 kann nur 2,4-GHz-WiFi (5-GHz-SSID →
-reason 201).
+belassen (steht im Model-Info-String des Boot-Logs); ESP32-S3 kann
+nur 2,4-GHz-WiFi (5-GHz-SSID → reason 201).
+
+**Wake Word seit 2026-06-11: "Mycroft"** (`wn9_mycroft_tts`,
+Model-Default-Threshold 0.625) statt "Alexa" — User-Wunsch. Wechsel =
+nur menuconfig (Select wake words) + `idf.py flash` (Model-Partition
+wird neu gepackt) + Idle-Text in `main.c`; die AFE nimmt das Modell
+automatisch aus der Partition. Hinweis: _tts-Modelle sind auf
+synthetischen Stimmen trainiert und ggf. etwas unzuverlaessiger als
+wn9_alexa/wn9_hiesp — falls die Erkennung im Alltag nervt, Threshold
+per CONFIG_WAKE_WORD_THRESHOLD senken oder Modell zuruecktauschen.
+Verifiziert per Lautsprecher-Test: 4/4 Detections + Timer-Command
+end-to-end.
 
 ---
 

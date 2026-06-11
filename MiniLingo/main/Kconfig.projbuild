@@ -37,7 +37,8 @@ menu "MiniLingo Configuration"
         int "WakeNet detection threshold (0-100, 0 = model default)"
         default 0
         help
-            0 = Default des Models verwenden (wn9_alexa: 0.64).
+            0 = Default des Models verwenden (steht im
+            Model-Info-String des Boot-Logs).
             Sonst: hoeher = strenger (weniger False-Positives, aber
             das Wake Word muss deutlicher gesprochen werden). Wird
             auf 0.0-1.0 skaliert.

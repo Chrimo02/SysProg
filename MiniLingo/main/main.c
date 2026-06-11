@@ -1,6 +1,7 @@
 // MiniLingo Phase 4: MultiNet + lokale Commands.
 // app_main initialisiert LVGL/Display/Touch/UI (Phase 1), NVS, WiFi-STA,
-// die AFE-Pipeline mit WakeNet9-Alexa (Phase 2), den Recording-Buffer
+// die AFE-Pipeline mit WakeNet9-Mycroft (Phase 2; bis 2026-06-11
+// Alexa), den Recording-Buffer
 // (Phase 3) und neu: MultiNet7-EN mit 14 lokalen Commands, Kitchen-Timer,
 // Lautstaerke und Canned-TTS aus SPIFFS (Phase 4).
 //
@@ -38,7 +39,7 @@
 
 static const char *TAG = "main";
 
-#define IDLE_STATE_TEXT  "Listening for Alexa"
+#define IDLE_STATE_TEXT  "Listening for Mycroft"
 #define INITIAL_VOLUME   60
 
 // -1 = keine Aenderung, 0 = getrennt, 1 = verbunden
