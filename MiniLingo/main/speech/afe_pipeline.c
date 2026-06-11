@@ -83,28 +83,35 @@ static void afe_fetch_task(void *arg)
             continue;
         }
 
-        if (recorder_is_active()) {
+        if (recorder_is_active() || commands_session_active()) {
             // vad_cache enthaelt vom VAD zurueckgehaltene Samples, die
             // zeitlich VOR res->data liegen — zuerst anhaengen, damit
             // der Sprachanfang nicht abgeschnitten wird. MultiNet
             // bekommt dieselben Frames wie der Recorder.
+            //
+            // Die MultiNet-Session laeuft bewusst WEITER, wenn der
+            // Recorder schon bei 1,5 s Stille stoppt: MultiNets
+            // Endpoint braucht bei langen Phrasen ("set timer five
+            // minutes") laenger als das Capture — sonst wird die
+            // Erkennung kurz vor dem Match abgeschnitten. Session-Ende
+            // ist erst Match oder MultiNet-Timeout (6 s); ab Phase 5
+            // darf der Cloud-Upload deshalb erst nach dem
+            // Session-Ende starten.
+            // MultiNet bekommt den vad_cache NICHT: er ueberlappt
+            // offenbar mit bereits gelieferten Frames (Decoder hoerte
+            // verdoppelte Phrasenanfaenge wie "SfPSfT" = "set set"),
+            // was die CTC/FST-Scores der laengeren Phrasen drueckt.
+            // Der Recorder behaelt ihn (Sprachanfang im WAV).
             if (res->vad_cache_size > 0) {
                 recorder_feed(res->vad_cache, (size_t)res->vad_cache_size,
                               true);
-                commands_feed(res->vad_cache,
-                              (size_t)res->vad_cache_size / sizeof(int16_t));
             }
             // Bei einem MultiNet-Match bricht der Callback (main.c) die
             // Aufnahme per recorder_abort() ab — recorder_feed dahinter
-            // ist dann ein no-op.
+            // ist dann ein no-op (ebenso nach Capture-Ende).
             commands_feed(res->data, (size_t)res->data_size / sizeof(int16_t));
             recorder_feed(res->data, (size_t)res->data_size,
                           res->vad_state == VAD_SPEECH);
-            if (!recorder_is_active()) {
-                // Capture-Ende (Stille/Limit/Abort) beendet auch das
-                // MultiNet-Fenster ("force timeout", Spec Section 9.1).
-                commands_session_stop();
-            }
         }
     }
 }
