@@ -1,11 +1,13 @@
-// MiniLingo Phase 6: Gemini Flash (Cloud-LLM).
+// MiniLingo Phase 7: Gemini TTS + Wiedergabe.
 // app_main initialisiert LVGL/Display/Touch/UI (Phase 1), NVS, WiFi-STA,
 // die AFE-Pipeline mit WakeNet9-Mycroft (Phase 2; bis 2026-06-11
 // Alexa), den Recording-Buffer (Phase 3), MultiNet7-EN mit 14 lokalen
 // Commands, Kitchen-Timer, Lautstaerke und Canned-TTS aus SPIFFS
 // (Phase 4) und den network_task, der Aufnahmen ohne lokalen
-// Command-Match an Groq Whisper schickt (Phase 5, User-Bubble) und das
-// Transkript an Gemini weiterreicht (Phase 6, Assistant-Bubble).
+// Command-Match an Groq Whisper schickt (Phase 5, User-Bubble), das
+// Transkript an Gemini weiterreicht (Phase 6, Assistant-Bubble) und
+// die Antwort per Gemini-TTS vorliest (Phase 7, SPEAKING-State;
+// "stop" bricht die Wiedergabe ab).
 //
 // Thread-Grenzen: WiFi-Events (Event-Loop-Task), Wake-Word-, Recorder-
 // und Command-Events (afe_fetch_task, Core 1) sowie Timer-Done
@@ -54,13 +56,16 @@ static atomic_bool s_wake_event;
 static atomic_int s_cmd_event;
 static atomic_int s_cmd_arg;
 static atomic_bool s_timer_done_event;
-// Cloud-Pipeline (Phase 5/6): processing = Upload gestartet
-// (afe_fetch_task), transcript/reply/error = Ergebnis da (network_task).
-// Die Textbuffer werden jeweils VOR dem Flag geschrieben; es ist nur
-// ein Cloud-Query gleichzeitig in flight (cloud_is_busy-Gate).
+// Cloud-Pipeline (Phase 5-7): processing = Upload gestartet
+// (afe_fetch_task), transcript/reply/speaking/done/error = Fortschritt
+// (network_task). Die Textbuffer werden jeweils VOR dem Flag
+// geschrieben; es ist nur ein Cloud-Query gleichzeitig in flight
+// (cloud_is_busy-Gate).
 static atomic_bool s_processing_event;
 static atomic_bool s_transcript_event;
 static atomic_bool s_reply_event;
+static atomic_bool s_speaking_event;
+static atomic_bool s_cloud_done_event;
 static atomic_bool s_cloud_error_event;
 static char s_transcript[512];
 static char s_reply[1024];
@@ -77,6 +82,7 @@ static bool s_mn_timed_out;
 // Nur im LVGL-Task benutzt (app_event_timer_cb / Status-Text-Logik).
 static bool s_listening;
 static bool s_processing;
+static bool s_speaking;
 static char s_state_text[24];
 
 static uint32_t lvgl_tick_get_cb(void)
@@ -164,6 +170,10 @@ static void on_cloud_event(cloud_event_type_t type, const char *text)
     } else if (type == CLOUD_EVT_REPLY) {
         snprintf(s_reply, sizeof(s_reply), "%s", text);
         atomic_store(&s_reply_event, true);
+    } else if (type == CLOUD_EVT_SPEAKING) {
+        atomic_store(&s_speaking_event, true);
+    } else if (type == CLOUD_EVT_DONE) {
+        atomic_store(&s_cloud_done_event, true);
     } else {
         snprintf(s_cloud_error, sizeof(s_cloud_error), "%s", text);
         atomic_store(&s_cloud_error_event, true);
@@ -182,6 +192,15 @@ static void on_timer_done(void)
 // fuer die UI setzen.
 static void on_local_command(command_id_t id, const char *phrase)
 {
+    // Waehrend der TTS-Wiedergabe (Phase 7) laeuft MultiNet nur fuer
+    // "stop" — alle anderen Matches sind dann mit hoher
+    // Wahrscheinlichkeit False-Positives aus dem eigenen
+    // Lautsprecher-Signal (Threshold 0.05, bekannt empfindlich).
+    if (cloud_is_speaking() && id != CMD_STOP) {
+        ESP_LOGW(TAG, "ignoring \"%s\" during TTS playback", phrase);
+        return;
+    }
+
     recorder_abort();
     // Falls das Capture schon fertig war (Stille vor dem Match):
     // Aufnahme verwerfen, sie war ein lokaler Command.
@@ -225,12 +244,13 @@ static void on_local_command(command_id_t id, const char *phrase)
         canned_audio_play(arg >= 0 ? CANNED_TIME_LEFT : CANNED_NO_TIMER);
         break;
     case CMD_STOP:
-        // Phase 4: bricht Canned-Wiedergabe (v.a. den Alarm) ab;
-        // ab Phase 7 zusaetzlich die Cloud-TTS. Laeuft ein Timer,
-        // gilt "stop" als "stop timer" — MultiNet feuert bei
+        // Bricht Canned- und TTS-Wiedergabe ab (Phase 4/7). Laeuft ein
+        // Timer, gilt "stop" als "stop timer" — MultiNet feuert bei
         // "stop timer" oft schon nach "stop" (Diagnose 2026-06-11).
+        // Ausnahme SPEAKING: da meint "stop" nur die Wiedergabe, der
+        // Timer laeuft weiter.
         canned_audio_stop();
-        if (kitchen_timer_cancel()) {
+        if (!cloud_is_speaking() && kitchen_timer_cancel()) {
             arg = 1;
             canned_audio_play(CANNED_TIMER_CANCELLED);
         }
@@ -310,6 +330,8 @@ static void update_state_text(void)
         snprintf(text, sizeof(text), "Listening...");
     } else if (s_processing) {
         snprintf(text, sizeof(text), "Processing...");
+    } else if (s_speaking) {
+        snprintf(text, sizeof(text), "Speaking...");
     } else if (left >= 0) {
         snprintf(text, sizeof(text), "Timer: %02d:%02d", left / 60,
                  left % 60);
@@ -351,8 +373,19 @@ static void app_event_timer_cb(lv_timer_t *timer)
 
     if (atomic_exchange(&s_reply_event, false)) {
         ui_chat_add_assistant_bubble(s_reply);
-        // Phase 6 endet hier; ab Phase 7 folgt SPEAKING (TTS).
+        // PROCESSING bleibt stehen — der TTS-Request laeuft noch;
+        // SPEAKING/DONE/ERROR loesen ab (Phase 7).
+    }
+
+    if (atomic_exchange(&s_speaking_event, false)) {
         s_processing = false;
+        s_speaking = true;
+        ui_mic_button_set_state(UI_MIC_SPEAKING);
+    }
+
+    if (atomic_exchange(&s_cloud_done_event, false)) {
+        s_processing = false;
+        s_speaking = false;
         ui_mic_button_set_state(UI_MIC_IDLE);
     }
 
@@ -361,6 +394,7 @@ static void app_event_timer_cb(lv_timer_t *timer)
         snprintf(text, sizeof(text), "Cloud: %s", s_cloud_error);
         ui_chat_add_local_bubble(text);
         s_processing = false;
+        s_speaking = false;
         ui_mic_button_set_state(UI_MIC_IDLE);
     }
 
@@ -388,7 +422,7 @@ static void app_event_timer_cb(lv_timer_t *timer)
 
 void app_main(void)
 {
-    ESP_LOGI(TAG, "MiniLingo Phase 6 starting");
+    ESP_LOGI(TAG, "MiniLingo Phase 7 starting");
 
     esp_err_t err = nvs_flash_init();
     if (err == ESP_ERR_NVS_NO_FREE_PAGES ||
@@ -437,5 +471,5 @@ void app_main(void)
                                   on_command_timeout));
     ESP_ERROR_CHECK(afe_pipeline_init(models));
 
-    ESP_LOGI(TAG, "Phase 6 up: local commands + cloud STT + LLM");
+    ESP_LOGI(TAG, "Phase 7 up: local commands + cloud STT + LLM + TTS");
 }

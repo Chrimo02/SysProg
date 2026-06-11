@@ -1,5 +1,8 @@
 #pragma once
 
+#include <stddef.h>
+#include <stdint.h>
+
 #include "esp_err.h"
 
 // Dateinamen in der SPIFFS-Partition "storage" — erzeugt von
@@ -29,5 +32,13 @@ esp_err_t canned_audio_init(void);
 // nacheinander (z.B. Timer-Done + Alarm).
 void canned_audio_play(const char *name);
 
-// Bricht die laufende Wiedergabe ab und leert die Queue ("stop").
+// Spielt einen rohen PCM-Buffer (16 bit LE mono, Phase 7: Gemini-TTS)
+// ueber den Player-Task und BLOCKIERT bis zum Wiedergabe-Ende bzw.
+// canned_audio_stop() — der Buffer muss solange gueltig bleiben.
+// Es darf nur einen solchen Aufrufer geben (network_task).
+esp_err_t canned_audio_play_pcm(const int16_t *pcm, size_t samples,
+                                uint32_t rate);
+
+// Bricht die laufende Wiedergabe ab und leert die Queue ("stop") —
+// seit Phase 7 auch die TTS-PCM-Wiedergabe.
 void canned_audio_stop(void);

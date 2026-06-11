@@ -16,6 +16,7 @@ idf_component_register(
          "network/http_util.c"
          "network/whisper.c"
          "network/gemini.c"
+         "network/tts.c"
          "debug/wav_dump.c"
          "speech/afe_pipeline.c"
          "speech/commands.c"

@@ -78,11 +78,32 @@ static void afe_feed_task(void *arg)
 
 static void afe_fetch_task(void *arg)
 {
+    // MultiNet-Session, die nur fuer den "stop"-Command waehrend der
+    // TTS-Wiedergabe laeuft (Phase 7, Spec Section 9.6: WakeNet aus,
+    // MultiNet an). Nur in diesem Task benutzt.
+    bool speak_session = false;
+
     while (1) {
         afe_fetch_result_t *res =
             s_afe_handle->fetch_with_delay(s_afe_data, portMAX_DELAY);
         if (!res || res->ret_value == ESP_FAIL) {
             continue;
+        }
+
+        // SPEAKING: MultiNet mitlaufen lassen, damit "stop" die
+        // Wiedergabe abbrechen kann. Laeuft die Session in ihren
+        // 6-s-Timeout oder matcht ein False-Positive, wird sie hier
+        // einfach neu gestartet, solange die Wiedergabe dauert; nach
+        // dem Wiedergabe-Ende wird sie beendet. (Eine normale
+        // Wake-Word-Session kann hier nicht aktiv sein — waehrend der
+        // Cloud-Pipeline startet keine, s.u.)
+        bool speaking = cloud_is_speaking();
+        if (speaking && !commands_session_active()) {
+            commands_session_start();
+            speak_session = true;
+        } else if (!speaking && speak_session) {
+            commands_session_stop();
+            speak_session = false;
         }
 
         // Solange die Cloud-Pipeline laeuft, kein neues Wake Word

@@ -7,11 +7,13 @@
 #include "esp_err.h"
 
 // Cloud-Pipeline (Spec "network_task"): Whisper-STT (Phase 5) +
-// Gemini-LLM (Phase 6); TTS (Phase 7) haengt sich hier an.
+// Gemini-LLM (Phase 6) + Gemini-TTS mit Wiedergabe (Phase 7).
 
 typedef enum {
     CLOUD_EVT_TRANSCRIPT,  // text = Whisper-Transkript
     CLOUD_EVT_REPLY,       // text = Gemini-Antwort
+    CLOUD_EVT_SPEAKING,    // TTS-Wiedergabe startet (text = "")
+    CLOUD_EVT_DONE,        // Pipeline fertig, zurueck zu Idle (text = "")
     CLOUD_EVT_ERROR,       // text = kurze Fehlerbeschreibung (fuer UI)
 } cloud_event_type_t;
 
@@ -32,3 +34,9 @@ esp_err_t cloud_init(cloud_event_cb_t cb);
 void cloud_submit(const uint8_t *wav, size_t wav_bytes);
 
 bool cloud_is_busy(void);
+
+// true, solange die TTS-Wiedergabe laeuft (SPEAKING-State der Spec).
+// Der afe_fetch_task laesst waehrenddessen MultiNet fuer den
+// "stop"-Command mitlaufen (WakeNet-Detections sind ueber das
+// cloud_is_busy-Gate eh unterdrueckt — kein Self-Trigger).
+bool cloud_is_speaking(void);

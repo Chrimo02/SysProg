@@ -1,7 +1,10 @@
 // Canned-TTS-Wiedergabe (Spec Section 7 "Pre-Generated Audio-Responses"):
 // vorab generierte WAVs aus der SPIFFS-Partition "storage" -> I2S1.
 // Der Player-Task entspricht dem audio_out_task der Spec-Task-Tabelle
-// (Prio 5, Core 1); ab Phase 7 konsumiert er zusaetzlich die tts_queue.
+// (Prio 5, Core 1); seit Phase 7 spielt er ueber dieselbe Queue auch
+// rohe PCM-Buffer (Gemini-TTS) — dadurch serialisieren sich Canned-
+// und Cloud-Wiedergabe, und canned_audio_stop() ("stop") bricht beides
+// ab.
 //
 // WAV-Parser laeuft chunk-weise (RIFF), weil afconvert (say-Fallback
 // des Generator-Scripts) einen FLLR-Padding-Chunk vor "data" einfuegt —
@@ -13,6 +16,7 @@
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
+#include "freertos/semphr.h"
 #include "freertos/task.h"
 
 #include "esp_check.h"
@@ -36,8 +40,24 @@ static const char *EXPECTED_FILES[] = {
     CANNED_ALARM,
 };
 
+// Queue-Item: SPIFFS-WAV (pcm == NULL) oder roher PCM-Buffer (Phase 7,
+// Gemini-TTS). Der PCM-Buffer gehoert dem Aufrufer und muss bis zum
+// Ende der Wiedergabe gueltig bleiben (canned_audio_play_pcm blockiert
+// deshalb).
+typedef struct {
+    char name[MAX_NAME];
+    const int16_t *pcm;
+    size_t samples;
+    uint32_t rate;
+} play_item_t;
+
 static QueueHandle_t s_queue;
 static atomic_bool s_stop;
+// Signalisiert dem (einzigen) PCM-Aufrufer das Wiedergabe-Ende;
+// s_pcm_waiting verhindert, dass ein stop() ohne wartenden Aufrufer
+// ein stales Token hinterlaesst.
+static SemaphoreHandle_t s_pcm_done;
+static atomic_bool s_pcm_waiting;
 
 // Liest den RIFF-Header, springt zum "data"-Chunk und liefert dessen
 // Laenge; *sample_rate aus dem fmt-Chunk. Nur PCM/16-bit/mono.
@@ -119,15 +139,40 @@ static void play_file(const char *name, int16_t *buf)
     fclose(f);
 }
 
+// PCM-Buffer (PSRAM) chunk-weise ausgeben. audio_out_write wendet den
+// Gain in-place an — deshalb erst in den Chunk-Buffer kopieren.
+static void play_pcm(const play_item_t *item, int16_t *buf)
+{
+    ESP_LOGI(TAG, "playing PCM (%u Hz, %u samples)", (unsigned)item->rate,
+             (unsigned)item->samples);
+    audio_out_set_rate(item->rate);
+
+    size_t pos = 0;
+    while (pos < item->samples && !atomic_load(&s_stop)) {
+        size_t n = item->samples - pos;
+        if (n > CHUNK_BYTES / sizeof(int16_t)) {
+            n = CHUNK_BYTES / sizeof(int16_t);
+        }
+        memcpy(buf, item->pcm + pos, n * sizeof(int16_t));
+        audio_out_write(buf, n);
+        pos += n;
+    }
+}
+
 static void player_task(void *arg)
 {
     static int16_t chunk_buf[CHUNK_BYTES / sizeof(int16_t)];
-    char name[MAX_NAME];
+    play_item_t item;
 
     while (1) {
-        if (xQueueReceive(s_queue, name, portMAX_DELAY) == pdTRUE) {
+        if (xQueueReceive(s_queue, &item, portMAX_DELAY) == pdTRUE) {
             atomic_store(&s_stop, false);
-            play_file(name, chunk_buf);
+            if (item.pcm) {
+                play_pcm(&item, chunk_buf);
+                xSemaphoreGive(s_pcm_done);
+            } else {
+                play_file(item.name, chunk_buf);
+            }
         }
     }
 }
@@ -155,8 +200,9 @@ esp_err_t canned_audio_init(void)
         }
     }
 
-    s_queue = xQueueCreate(4, MAX_NAME);
-    if (!s_queue) {
+    s_queue = xQueueCreate(4, sizeof(play_item_t));
+    s_pcm_done = xSemaphoreCreateBinary();
+    if (!s_queue || !s_pcm_done) {
         return ESP_ERR_NO_MEM;
     }
     BaseType_t ok = xTaskCreatePinnedToCore(player_task, "audio_out", 4096,
@@ -173,19 +219,55 @@ esp_err_t canned_audio_init(void)
 
 void canned_audio_play(const char *name)
 {
-    char item[MAX_NAME];
+    play_item_t item = { 0 };
     if (strlen(name) >= MAX_NAME) {
         ESP_LOGE(TAG, "name too long: %s", name);
         return;
     }
-    strcpy(item, name);
-    if (xQueueSend(s_queue, item, 0) != pdTRUE) {
+    strcpy(item.name, name);
+    if (xQueueSend(s_queue, &item, 0) != pdTRUE) {
         ESP_LOGW(TAG, "play queue full, dropping %s", name);
     }
+}
+
+esp_err_t canned_audio_play_pcm(const int16_t *pcm, size_t samples,
+                                uint32_t rate)
+{
+    play_item_t item = { .pcm = pcm, .samples = samples, .rate = rate };
+
+    // Stales Done-Token entsorgen (stop() ohne wartenden Aufrufer).
+    while (xSemaphoreTake(s_pcm_done, 0) == pdTRUE) {
+    }
+
+    atomic_store(&s_pcm_waiting, true);
+    if (xQueueSend(s_queue, &item, pdMS_TO_TICKS(100)) != pdTRUE) {
+        atomic_store(&s_pcm_waiting, false);
+        ESP_LOGW(TAG, "play queue full, dropping PCM");
+        return ESP_FAIL;
+    }
+
+    // Timeout = Spieldauer + Vorlauf fuer ggf. davor laufende
+    // Canned-Files (z.B. Timer-Alarm) — nur Absicherung gegen Haenger.
+    TickType_t timeout =
+        pdMS_TO_TICKS((uint64_t)samples * 1000 / rate + 30000);
+    BaseType_t ok = xSemaphoreTake(s_pcm_done, timeout);
+    atomic_store(&s_pcm_waiting, false);
+    if (ok != pdTRUE) {
+        ESP_LOGE(TAG, "PCM playback did not finish in time");
+        return ESP_ERR_TIMEOUT;
+    }
+    return ESP_OK;
 }
 
 void canned_audio_stop(void)
 {
     xQueueReset(s_queue);
     atomic_store(&s_stop, true);
+    // Falls das PCM-Item noch ungespielt in der Queue lag, hat es der
+    // Reset verworfen — den wartenden Aufrufer trotzdem aufwecken.
+    // (Lief es bereits, gibt der Player gleich selbst; doppeltes Give
+    // kappt die binaere Semaphore.)
+    if (atomic_load(&s_pcm_waiting)) {
+        xSemaphoreGive(s_pcm_done);
+    }
 }
