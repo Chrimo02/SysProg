@@ -7,6 +7,8 @@
 //                 danach Frames parallel an recorder (Phase 3, Spec
 //                 Section 9.1) und MultiNet/commands (Phase 4).
 // Beide auf Core 1, Prio 5 (Task-Tabelle Spec Section 8).
+#include <stdatomic.h>
+
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
@@ -26,6 +28,14 @@ static const char *TAG = "afe_pipeline";
 
 static const esp_afe_sr_iface_t *s_afe_handle;
 static esp_afe_sr_data_t *s_afe_data;
+// Touch-Trigger (Mic-Button): gesetzt aus dem LVGL-Task, konsumiert
+// vom afe_fetch_task mit dem naechsten AFE-Frame (~32 ms Latenz).
+static atomic_bool s_listen_request;
+
+void afe_pipeline_request_listening(void)
+{
+    atomic_store(&s_listen_request, true);
+}
 
 static void afe_feed_task(void *arg)
 {
@@ -76,13 +86,22 @@ static void afe_fetch_task(void *arg)
         }
 
         // Solange die Cloud-Pipeline laeuft, kein neues Wake Word
-        // annehmen: recorder_start() wuerde den WAV-Buffer
-        // ueberschreiben, den der Whisper-Upload gerade liest.
-        if (res->wakeup_state == WAKENET_DETECTED && !recorder_is_active()
-            && !cloud_is_busy()) {
-            wake_word_on_detected(res->wake_word_index);
+        // und kein Touch-Trigger annehmen: recorder_start() wuerde
+        // den WAV-Buffer ueberschreiben, den der Whisper-Upload
+        // gerade liest. Ein Touch waehrend einer laufenden Session
+        // wird konsumiert und ignoriert (no-op, Session laeuft schon).
+        bool touch = atomic_exchange(&s_listen_request, false);
+        if ((res->wakeup_state == WAKENET_DETECTED || touch)
+            && !recorder_is_active() && !cloud_is_busy()
+            && !commands_session_active()) {
+            if (touch && res->wakeup_state != WAKENET_DETECTED) {
+                wake_word_on_touch();
+            } else {
+                wake_word_on_detected(res->wake_word_index);
+            }
             // Capture ab dem naechsten Frame — res->data dieses Frames
-            // enthaelt noch das Ende des Wake Words selbst.
+            // enthaelt noch das Ende des Wake Words selbst (bzw. beim
+            // Touch das Tipp-Geraeusch).
             recorder_start();
             commands_session_start();
             continue;

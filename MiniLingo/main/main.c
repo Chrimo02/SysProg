@@ -96,8 +96,13 @@ static void lvgl_task(void *arg)
 
 static void on_mic_button_clicked(void)
 {
-    // Laeuft im LVGL-Task-Kontext (Klick-Event), UI-Calls sind hier OK.
-    ui_chat_add_local_bubble("Mic-Button gedrueckt!");
+    // Laeuft im LVGL-Task-Kontext (Klick-Event). Startet eine
+    // Listening-Session wie das Wake Word (Spec Section 2: Trigger =
+    // "Wake Word | Touch"); das UI-Feedback (roter Button,
+    // "Listening...") kommt ueber denselben Wake-Event-Pfad zurueck.
+    // Waehrend laufender Session/Cloud-Pipeline wird der Klick in der
+    // Pipeline ignoriert.
+    afe_pipeline_request_listening();
 }
 
 static void on_wifi_status(bool connected)

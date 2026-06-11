@@ -11,3 +11,10 @@
 // fetch-Task sie ab dem ersten Wake Word fuettert.
 // Erwartet initialisiertes audio_in (audio_in_init).
 esp_err_t afe_pipeline_init(srmodel_list_t *models);
+
+// Touch-Trigger (Spec Section 2: "Wake Word | Touch"): startet eine
+// Listening-Session wie nach dem Wake Word, nur ohne WakeNet. Aus
+// beliebigem Task-Kontext aufrufbar (Mic-Button, LVGL-Task); der
+// afe_fetch_task holt das Flag mit dem naechsten AFE-Frame ab.
+// Ignoriert, solange schon ein Capture oder die Cloud-Pipeline laeuft.
+void afe_pipeline_request_listening(void);

@@ -64,9 +64,28 @@ noetig (siehe Session 6) — falls das im Alltag nervt: Threshold nur
 fuer die kurzen Ein-Wort-Commands anheben (per-Command-Threshold
 pruefen) oder Mindest-Dauer checken; Phase 8 (Robustness).
 
+**Nachtrag 2026-06-12 (gleiche Session): Farb-Fix + Touch-Trigger.**
+User-Beobachtung: User-Bubbles orange statt blau, Listening-Button
+blau statt rot — das Panel ist ein BGR-ILI9341, `display.c` stand
+auf `ESP_LCD_COLOR_SPACE_RGB` (fiel nie auf: Grau/Gruen ueberleben
+den R/B-Tausch fast unveraendert). Fix: `..._BGR`. Ausserdem den
+Mic-Button als Touch-Trigger aktiviert (stand in der Spec als
+Trigger "Wake Word | Touch", war aber keiner Phase zugeordnet):
+`afe_pipeline_request_listening()` setzt ein atomares Flag, der
+afe_fetch_task startet damit dieselbe Session wie nach dem Wake Word
+(gleicher Listener-Pfad, MultiNet + Cloud-Fallback inklusive).
+Ignoriert, solange Session oder Cloud-Pipeline laufen. Beobachtung
+aus dem Regressionstest: MultiNet verfehlte einmal "set timer five
+minutes" (bekannt: niedrige Probs) — der Cloud-Fallback fing es ab;
+Whisper transkribierte "Set Set Timer 5 Minutes": die
+vad_cache-Frame-Doppelung aus Session 6 ist also auch im WAV
+hoerbar (fuer Whisper unkritisch, ggf. Phase 8 pruefen, ob der
+Recorder den vad_cache wirklich braucht).
+
 **Nächster Schritt:** User-Test Phase 5 (echte Stimme; auf dem
-Display pruefen: Transkript-Bubble, oranger Mic-Button,
-"Processing..."), dann Phase 6 — Gemini Flash (`gemini.c`,
+Display pruefen: Transkript-Bubble **blau** rechts, Mic-Button rot
+bei Listening / orange + "Processing..." bei Cloud, Touch-Trigger
+per Fingertipp), dann Phase 6 — Gemini Flash (`gemini.c`,
 JSON-Request mit System-Instruction + History-Ringpuffer in
 `state.c`, Antwort als Assistant-Bubble). Der Einstiegspunkt ist
 `on_cloud_event()`/`network_task` in `main/network/cloud.c`.
@@ -278,6 +297,15 @@ end-to-end.
 - **`WHISPER_LANGUAGE` als Kconfig** (Default `de`, Spec Section 9.3):
   die lokalen Commands sind englisch, freie Fragen deutsch — falls
   sich das aendert, nur menuconfig statt Code.
+- **Das ILI9341-Panel ist BGR** (`ESP_LCD_COLOR_SPACE_BGR` in
+  `display.c`, 2026-06-12): mit RGB waren Rot und Blau vertauscht.
+  Unabhaengig vom Endianness-Byte-Swap im Flush-Callback.
+- **Touch-Trigger (Mic-Button) ist implementiert** (2026-06-12; in
+  der Spec als Trigger vorgesehen, aber keiner Phase zugeordnet):
+  LVGL-Klick -> `afe_pipeline_request_listening()` (atomares Flag)
+  -> afe_fetch_task startet die normale Listening-Session ohne
+  WakeNet. `wake_word_on_touch()` feuert denselben Listener wie das
+  Wake Word.
 
 ---
 

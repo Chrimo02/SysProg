@@ -20,3 +20,11 @@ void wake_word_on_detected(int word_index)
         s_listener();
     }
 }
+
+void wake_word_on_touch(void)
+{
+    ESP_LOGI(TAG, "Listening via touch (mic button)");
+    if (s_listener) {
+        s_listener();
+    }
+}
