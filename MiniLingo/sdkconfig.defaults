@@ -19,6 +19,11 @@ CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_240=y
 # FreeRTOS
 CONFIG_FREERTOS_HZ=1000
 
+# mbedTLS aus dem PSRAM allokieren (Phase 5): der TLS-Handshake
+# (~50 KB) passt neben esp-sr nicht mehr in den internen Heap
+# (mbedtls_ssl_setup -0x7F00 = alloc failed).
+CONFIG_MBEDTLS_EXTERNAL_MEM_ALLOC=y
+
 # esp-sr (Phase 2): WakeNet9 "Mycroft" (bis 2026-06-11: Alexa).
 # MultiNet7-EN wird schon jetzt in
 # die model-Partition gepackt, damit fuer Phase 4 kein erneutes

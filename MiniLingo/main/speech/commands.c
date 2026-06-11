@@ -68,13 +68,15 @@ static const struct {
 static const esp_mn_iface_t *s_multinet;
 static model_iface_data_t *s_mn_data;
 static commands_match_cb_t s_match_cb;
+static commands_timeout_cb_t s_timeout_cb;
 
 static int16_t *s_chunk;        // Sammel-Buffer: 1 MultiNet-Chunk
 static size_t s_chunk_samples;  // dessen Groesse
 static size_t s_chunk_fill;
 static bool s_active;
 
-esp_err_t commands_init(srmodel_list_t *models, commands_match_cb_t cb)
+esp_err_t commands_init(srmodel_list_t *models, commands_match_cb_t cb,
+                        commands_timeout_cb_t timeout_cb)
 {
     char *mn_name = models ? esp_srmodel_filter(models, ESP_MN_PREFIX,
                                                 ESP_MN_ENGLISH)
@@ -127,6 +129,7 @@ esp_err_t commands_init(srmodel_list_t *models, commands_match_cb_t cb)
     s_multinet->clean(s_mn_data);
 
     s_match_cb = cb;
+    s_timeout_cb = timeout_cb;
     ESP_LOGI(TAG, "%s ready: %d phrases, chunk %u samples, timeout %d ms",
              mn_name, (int)(sizeof(COMMANDS) / sizeof(COMMANDS[0])),
              (unsigned)s_chunk_samples, MN_TIMEOUT_MS);
@@ -160,6 +163,9 @@ static void detect_chunk(int16_t *chunk)
     s_active = false;
     if (state == ESP_MN_STATE_TIMEOUT) {
         ESP_LOGI(TAG, "no local command (timeout) -> cloud query");
+        if (s_timeout_cb) {
+            s_timeout_cb();
+        }
         return;
     }
 

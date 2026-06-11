@@ -12,6 +12,15 @@ menu "MiniLingo Configuration"
         string "Groq API Key"
         default ""
 
+    config WHISPER_LANGUAGE
+        string "Whisper language hint (ISO-639-1)"
+        default "de"
+        help
+            Wird als language-Parameter an Groq Whisper geschickt
+            (Spec Section 9.3) — ohne raet Whisper die Sprache, was
+            Latenz kostet und die Genauigkeit verschlechtert.
+            Freie Fragen an MiniLingo sind deutsch -> "de".
+
     config GEMINI_API_KEY
         string "Gemini API Key"
         default ""

@@ -11,6 +11,8 @@ idf_component_register(
          "local/timer.c"
          "local/volume.c"
          "network/wifi.c"
+         "network/cloud.c"
+         "network/whisper.c"
          "debug/wav_dump.c"
          "speech/afe_pipeline.c"
          "speech/commands.c"

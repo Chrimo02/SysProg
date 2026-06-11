@@ -16,6 +16,7 @@
 #include "sdkconfig.h"
 
 #include "drivers/audio_in.h"
+#include "network/cloud.h"
 #include "commands.h"
 #include "recorder.h"
 #include "wake_word.h"
@@ -74,7 +75,11 @@ static void afe_fetch_task(void *arg)
             continue;
         }
 
-        if (res->wakeup_state == WAKENET_DETECTED && !recorder_is_active()) {
+        // Solange die Cloud-Pipeline laeuft, kein neues Wake Word
+        // annehmen: recorder_start() wuerde den WAV-Buffer
+        // ueberschreiben, den der Whisper-Upload gerade liest.
+        if (res->wakeup_state == WAKENET_DETECTED && !recorder_is_active()
+            && !cloud_is_busy()) {
             wake_word_on_detected(res->wake_word_index);
             // Capture ab dem naechsten Frame — res->data dieses Frames
             // enthaelt noch das Ende des Wake Words selbst.

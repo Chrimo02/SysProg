@@ -30,9 +30,14 @@ typedef enum {
 typedef void (*commands_match_cb_t)(command_id_t command_id,
                                     const char *phrase);
 
+// MultiNet-Timeout = kein lokaler Command -> die Aufnahme ist ein
+// Cloud-Query (Phase 5). Gleicher Kontext wie der Match-Callback.
+typedef void (*commands_timeout_cb_t)(void);
+
 // Laedt MultiNet7-EN aus der Model-Partition und registriert die
 // 14 Commands. models kommt von afe_pipeline_get_models().
-esp_err_t commands_init(srmodel_list_t *models, commands_match_cb_t cb);
+esp_err_t commands_init(srmodel_list_t *models, commands_match_cb_t cb,
+                        commands_timeout_cb_t timeout_cb);
 
 // Session = ein Erkennungsfenster nach dem Wake Word. start() setzt den
 // Model-State zurueck, stop() beendet das Fenster (Capture-Ende ohne

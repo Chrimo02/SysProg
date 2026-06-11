@@ -17,8 +17,8 @@
 | 1 | Projekt-Skelett + LVGL + UI-Mockup | ✅ erledigt | 2026-06-10, am Gerät verifiziert (UI, Touch, Scrolling) |
 | 2 | WiFi + esp-sr + Wake Word | ✅ erledigt | 2026-06-10, am Gerät verifiziert: Wake Word 3/3 Detections, WiFi verbindet (2,4-GHz-SSID) |
 | 3 | Audio-Capture + Recording-Buffer | ✅ erledigt | 2026-06-10, am Gerät verifiziert: WAV via UART-Dump extrahiert, Sprache anhörbar |
-| 4 | MultiNet + Lokale Commands | 🟡 implementiert | 2026-06-10, geflasht, Boot-Log sauber (mn7_en + SPIFFS ok); Sprachtest (Acceptance) ausstehend |
-| 5 | Groq Whisper Integration | ⬜ offen | |
+| 4 | MultiNet + Lokale Commands | ✅ erledigt | 2026-06-11, User-Test ok bis auf "thirty minutes" (niedrige Prio, s.u.) |
+| 5 | Groq Whisper Integration | 🟡 implementiert | 2026-06-12, per Lautsprecher-Test verifiziert (Transkripte wortgenau); User-Test + UI-Sichtpruefung ausstehend |
 | 6 | Gemini Flash Integration | ⬜ offen | |
 | 7 | Gemini TTS + Wiedergabe | ⬜ offen | |
 | 8 | Polish + Robustness | ⬜ offen | |
@@ -28,6 +28,50 @@
 ---
 
 ## Aktueller Stand / Nächster Schritt
+
+**Stand 2026-06-12 (Session 7): Phase 5 implementiert, geflasht und
+per Lautsprecher-Test verifiziert.** Freie Fragen landen nach dem
+MultiNet-Timeout bei Groq Whisper; beide Testsätze ("Wie wird das
+Wetter morgen in Berlin?", "Erzähl mir einen kurzen Witz über
+Roboter.") kamen wortgenau zurück (~1,5 s für 6 s Audio). Aufbau:
+
+- `main/network/whisper.c`: Multipart-Upload des WAV-Buffers an
+  `api.groq.com` (`whisper-large-v3-turbo`, `language` aus neuem
+  Kconfig `WHISPER_LANGUAGE`, Default `de`), Response per cJSON.
+- `main/network/cloud.c`: `network_task` (Prio 3, Core 0, 16 KB,
+  Spec Section 8) mit Job-Queue; Phase 6/7 (Gemini, TTS) haengen
+  sich hier an. TLS-Requests laufen strikt sequenziell.
+- Cloud-Trigger: `commands.c` meldet den MultiNet-Timeout per
+  Callback; `main.c` startet den Upload erst, wenn Capture-Ende UND
+  Timeout beide da sind (beides im afe_fetch_task, kein Locking).
+  Ein MultiNet-Match nach Capture-Ende verwirft die Aufnahme.
+- Buffer-Schutz: solange `cloud_is_busy()`, nimmt `afe_pipeline.c`
+  kein neues Wake Word an — `recorder_start()` wuerde sonst den
+  WAV-Buffer ueberschreiben, den der Upload gerade liest.
+- UI: Transkript als User-Bubble, Mic-Button orange + "Processing..."
+  waehrend der Cloud-Pipeline (die "Captured ..."-Bubble ist ersetzt).
+- **mbedTLS allokiert jetzt aus dem PSRAM**
+  (`CONFIG_MBEDTLS_EXTERNAL_MEM_ALLOC`, sdkconfig + defaults): der
+  Handshake (~50 KB) scheiterte neben esp-sr mit
+  `mbedtls_ssl_setup -0x7F00` (alloc failed) im internen Heap.
+
+**Bekanntes Problem (2026-06-12): MultiNet-False-Positives bei
+deutschen/freien Saetzen.** Im Test matchte "Wie wird das Wetter..."
+einmal als "mute" (prob 0.05) und verwarf den Cloud-Query; auch auf
+Umgebungsgeraeusche gab es Matches ("mute" 0.17, "unmute" 0.20 nach
+spontanen Wake-Detections). Threshold 0.05 ist fuer die Timer-Phrasen
+noetig (siehe Session 6) — falls das im Alltag nervt: Threshold nur
+fuer die kurzen Ein-Wort-Commands anheben (per-Command-Threshold
+pruefen) oder Mindest-Dauer checken; Phase 8 (Robustness).
+
+**Nächster Schritt:** User-Test Phase 5 (echte Stimme; auf dem
+Display pruefen: Transkript-Bubble, oranger Mic-Button,
+"Processing..."), dann Phase 6 — Gemini Flash (`gemini.c`,
+JSON-Request mit System-Instruction + History-Ringpuffer in
+`state.c`, Antwort als Assistant-Bubble). Der Einstiegspunkt ist
+`on_cloud_event()`/`network_task` in `main/network/cloud.c`.
+
+---
 
 **Stand 2026-06-10 (Session 5):** Phase 4 implementiert, gebaut und
 geflasht (inkl. SPIFFS-Image). Boot-Log sauber: `mn7_en ready: 14
@@ -119,11 +163,10 @@ läuft. Verifiziert außerdem: "how much time left", "cancel timer",
 Cloud-Pfad. Vom User zu testen: echte Stimme statt `say`, Countdown
 in der Status-Bar, Alarm nach Ablauf, "stop" während des Alarms.
 
-**Nächster Schritt:** User-Sprachtest Phase 4, dann Phase 5 — Groq
-Whisper (`whisper.c`, Multipart-Upload des Recording-Buffers,
-`esp_crt_bundle`). API-Keys (Groq + Gemini) sind seit 2026-06-11 in
-menuconfig gesetzt; Canned-WAVs mit Gemini-TTS (Voice Kore)
-regeneriert.
+*(Nächster Schritt von damals — User-Sprachtest Phase 4 und Phase 5 —
+ist erledigt, siehe Session 7 oben.)* API-Keys (Groq + Gemini) sind
+seit 2026-06-11 in menuconfig gesetzt; Canned-WAVs mit Gemini-TTS
+(Voice Kore) regeneriert.
 
 **TODO Canned-Voice-Samples (User-Wunsch 2026-06-11):** Die
 Voice-Samples nochmal neu generieren mit einer **männlichen Stimme**
@@ -222,6 +265,19 @@ end-to-end.
 - **"stop" cancelt auch den laufenden Timer**: MultiNet matcht
   "stop timer" oft schon nach "stop" (Endpoint vor "timer") — der
   CMD_STOP-Handler in `main.c` deckt beide Intents ab.
+- **mbedTLS allokiert aus dem PSRAM** (Phase 5,
+  `CONFIG_MBEDTLS_EXTERNAL_MEM_ALLOC`): TLS-Handshake (~50 KB) passt
+  neben esp-sr nicht in den internen Heap. Spec Section 13 ("TLS
+  frisst RAM") gilt weiterhin: nie zwei TLS-Verbindungen parallel —
+  deshalb laufen alle Cloud-Requests sequenziell im `network_task`.
+- **Kein neues Wake Word waehrend die Cloud-Pipeline laeuft**
+  (`cloud_is_busy()`-Gate im afe_fetch_task): der Whisper-Upload
+  liest direkt aus dem Recording-Buffer; `recorder_start()` wuerde
+  ihn ueberschreiben. Entspricht dem PROCESSING-State der
+  Spec-State-Machine (Section 8).
+- **`WHISPER_LANGUAGE` als Kconfig** (Default `de`, Spec Section 9.3):
+  die lokalen Commands sind englisch, freie Fragen deutsch — falls
+  sich das aendert, nur menuconfig statt Code.
 
 ---
 

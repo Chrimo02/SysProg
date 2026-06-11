@@ -1,9 +1,11 @@
-// MiniLingo Phase 4: MultiNet + lokale Commands.
+// MiniLingo Phase 5: Groq Whisper (Cloud-STT).
 // app_main initialisiert LVGL/Display/Touch/UI (Phase 1), NVS, WiFi-STA,
 // die AFE-Pipeline mit WakeNet9-Mycroft (Phase 2; bis 2026-06-11
-// Alexa), den Recording-Buffer
-// (Phase 3) und neu: MultiNet7-EN mit 14 lokalen Commands, Kitchen-Timer,
-// Lautstaerke und Canned-TTS aus SPIFFS (Phase 4).
+// Alexa), den Recording-Buffer (Phase 3), MultiNet7-EN mit 14 lokalen
+// Commands, Kitchen-Timer, Lautstaerke und Canned-TTS aus SPIFFS
+// (Phase 4) und neu: den network_task, der Aufnahmen ohne lokalen
+// Command-Match an Groq Whisper schickt (Phase 5) — das Transkript
+// erscheint als User-Bubble.
 //
 // Thread-Grenzen: WiFi-Events (Event-Loop-Task), Wake-Word-, Recorder-
 // und Command-Events (afe_fetch_task, Core 1) sowie Timer-Done
@@ -30,6 +32,7 @@
 #include "local/canned_audio.h"
 #include "local/timer.h"
 #include "local/volume.h"
+#include "network/cloud.h"
 #include "network/wifi.h"
 #include "speech/afe_pipeline.h"
 #include "speech/commands.h"
@@ -45,18 +48,33 @@ static const char *TAG = "main";
 // -1 = keine Aenderung, 0 = getrennt, 1 = verbunden
 static atomic_int s_wifi_event = -1;
 static atomic_bool s_wake_event;
-static atomic_bool s_rec_done_event;
-static atomic_uint s_rec_duration_ms;
-static atomic_uint s_rec_wav_kb;
 // 0 = kein Event, sonst command_id_t. s_cmd_arg traegt den Kontext fuer
 // den Bubble-Text (Restzeit/Volume/Cancel-Erfolg) und wird VOR der ID
 // geschrieben (einziger Writer: afe_fetch_task).
 static atomic_int s_cmd_event;
 static atomic_int s_cmd_arg;
 static atomic_bool s_timer_done_event;
+// Cloud-Pipeline (Phase 5): processing = Upload gestartet
+// (afe_fetch_task), transcript/error = Ergebnis da (network_task).
+// Die Textbuffer werden jeweils VOR dem Flag geschrieben; es ist nur
+// ein Cloud-Query gleichzeitig in flight (cloud_is_busy-Gate).
+static atomic_bool s_processing_event;
+static atomic_bool s_transcript_event;
+static atomic_bool s_cloud_error_event;
+static char s_transcript[512];
+static char s_cloud_error[48];
+
+// Cloud-Pfad-Koordination, nur im afe_fetch_task: Upload erst, wenn
+// BEIDES vorliegt — Capture-Ende (WAV fertig) und MultiNet-Timeout
+// (kein lokaler Command; die MultiNet-Session lebt laenger als das
+// Capture, siehe afe_pipeline.c).
+static const uint8_t *s_pending_wav;
+static size_t s_pending_wav_bytes;
+static bool s_mn_timed_out;
 
 // Nur im LVGL-Task benutzt (app_event_timer_cb / Status-Text-Logik).
 static bool s_listening;
+static bool s_processing;
 static char s_state_text[24];
 
 static uint32_t lvgl_tick_get_cb(void)
@@ -87,21 +105,59 @@ static void on_wifi_status(bool connected)
     atomic_store(&s_wifi_event, connected ? 1 : 0);
 }
 
+// Laeuft (wie alle Recorder-/Command-Callbacks) im afe_fetch_task.
 static void on_wake_word(void)
 {
+    // Neue Session: Cloud-Pfad-Zustand der vorigen zuruecksetzen.
+    s_pending_wav = NULL;
+    s_mn_timed_out = false;
     atomic_store(&s_wake_event, true);
 }
 
-// Laeuft im afe_fetch_task. Der WAV-Buffer bleibt bis zum naechsten
-// recorder_start() gueltig — der Dump-Task liest ihn nur.
+// Cloud-Pfad starten, sobald WAV + MultiNet-Timeout beide da sind.
+// Der Recording-Buffer bleibt waehrend des Uploads gueltig, weil
+// afe_pipeline bei cloud_is_busy() kein neues Capture startet.
+static void submit_cloud_query(void)
+{
+    cloud_submit(s_pending_wav, s_pending_wav_bytes);
+    s_pending_wav = NULL;
+    s_mn_timed_out = false;
+    atomic_store(&s_processing_event, true);
+}
+
 static void on_recording_done(const uint8_t *wav, size_t wav_bytes,
                               uint32_t duration_ms,
                               recorder_stop_reason_t reason)
 {
     wav_dump_trigger(wav, wav_bytes);
-    atomic_store(&s_rec_duration_ms, duration_ms);
-    atomic_store(&s_rec_wav_kb, (unsigned)(wav_bytes / 1024));
-    atomic_store(&s_rec_done_event, true);
+    s_pending_wav = wav;
+    s_pending_wav_bytes = wav_bytes;
+    if (s_mn_timed_out) {
+        submit_cloud_query();
+    }
+}
+
+// MultiNet-Timeout = kein lokaler Command. Meist liegt das WAV schon
+// bereit (Capture stoppt nach 1,5 s Stille, MultiNet erst nach 6 s);
+// redet der User aber laenger als 6 s, kommt das Capture-Ende spaeter.
+static void on_command_timeout(void)
+{
+    s_mn_timed_out = true;
+    if (s_pending_wav) {
+        submit_cloud_query();
+    }
+}
+
+// Laeuft im network_task (Core 0): Ergebnis der Cloud-Pipeline.
+static void on_cloud_event(cloud_event_type_t type, const char *text)
+{
+    if (type == CLOUD_EVT_TRANSCRIPT) {
+        snprintf(s_transcript, sizeof(s_transcript), "%s", text);
+        atomic_store(&s_transcript_event, true);
+    } else {
+        snprintf(s_cloud_error, sizeof(s_cloud_error), "%s", text);
+        atomic_store(&s_cloud_error_event, true);
+    }
 }
 
 static void on_timer_done(void)
@@ -117,6 +173,9 @@ static void on_timer_done(void)
 static void on_local_command(command_id_t id, const char *phrase)
 {
     recorder_abort();
+    // Falls das Capture schon fertig war (Stille vor dem Match):
+    // Aufnahme verwerfen, sie war ein lokaler Command.
+    s_pending_wav = NULL;
     int arg = 0;
 
     switch (id) {
@@ -229,8 +288,9 @@ static void mic_button_reset_cb(lv_timer_t *timer)
     ui_mic_button_set_state(UI_MIC_IDLE);
 }
 
-// Status-Text mittig in der Bar: Listening > Timer-Countdown > Idle
-// (Spec Section 4: "Timer: 04:23" ersetzt den State-Text).
+// Status-Text mittig in der Bar: Listening > Processing >
+// Timer-Countdown > Idle (Spec Section 4: "Timer: 04:23" ersetzt den
+// State-Text).
 static void update_state_text(void)
 {
     char text[24];
@@ -238,6 +298,8 @@ static void update_state_text(void)
 
     if (s_listening) {
         snprintf(text, sizeof(text), "Listening...");
+    } else if (s_processing) {
+        snprintf(text, sizeof(text), "Processing...");
     } else if (left >= 0) {
         snprintf(text, sizeof(text), "Timer: %02d:%02d", left / 60,
                  left % 60);
@@ -264,14 +326,27 @@ static void app_event_timer_cb(lv_timer_t *timer)
         ui_mic_button_set_state(UI_MIC_LISTENING);
     }
 
-    if (atomic_exchange(&s_rec_done_event, false)) {
-        unsigned ms = atomic_load(&s_rec_duration_ms);
-        unsigned kb = atomic_load(&s_rec_wav_kb);
-        char text[48];
-        snprintf(text, sizeof(text), "Captured %u.%us audio (%u KB)",
-                 ms / 1000, (ms % 1000) / 100, kb);
-        ui_chat_add_local_bubble(text);
+    // Cloud-Pipeline gestartet: Mic-Button orange, "Processing...".
+    // (Die "Captured ..."-Bubble aus Phase 3/4 ist damit ersetzt.)
+    if (atomic_exchange(&s_processing_event, false)) {
         s_listening = false;
+        s_processing = true;
+        ui_mic_button_set_state(UI_MIC_PROCESSING);
+    }
+
+    if (atomic_exchange(&s_transcript_event, false)) {
+        ui_chat_add_user_bubble(s_transcript);
+        // Phase 5 endet hier; ab Phase 6 bleibt PROCESSING stehen,
+        // bis die Gemini-Antwort da ist.
+        s_processing = false;
+        ui_mic_button_set_state(UI_MIC_IDLE);
+    }
+
+    if (atomic_exchange(&s_cloud_error_event, false)) {
+        char text[64];
+        snprintf(text, sizeof(text), "Cloud: %s", s_cloud_error);
+        ui_chat_add_local_bubble(text);
+        s_processing = false;
         ui_mic_button_set_state(UI_MIC_IDLE);
     }
 
@@ -299,7 +374,7 @@ static void app_event_timer_cb(lv_timer_t *timer)
 
 void app_main(void)
 {
-    ESP_LOGI(TAG, "MiniLingo Phase 4 starting");
+    ESP_LOGI(TAG, "MiniLingo Phase 5 starting");
 
     esp_err_t err = nvs_flash_init();
     if (err == ESP_ERR_NVS_NO_FREE_PAGES ||
@@ -325,6 +400,10 @@ void app_main(void)
 
     ESP_ERROR_CHECK(wifi_init(on_wifi_status));
 
+    // Cloud-Pipeline (Phase 5): network_task vor der AFE-Pipeline
+    // starten — der afe_fetch_task ruft cloud_submit/cloud_is_busy.
+    ESP_ERROR_CHECK(cloud_init(on_cloud_event));
+
     // Audio-Ausgabe + lokale Command-Infrastruktur (Phase 4)
     ESP_ERROR_CHECK(audio_out_init());
     volume_init(INITIAL_VOLUME);
@@ -340,8 +419,9 @@ void app_main(void)
     ESP_ERROR_CHECK(recorder_init(on_recording_done));
     ESP_ERROR_CHECK(audio_in_init());
     srmodel_list_t *models = esp_srmodel_init("model");
-    ESP_ERROR_CHECK(commands_init(models, on_local_command));
+    ESP_ERROR_CHECK(commands_init(models, on_local_command,
+                                  on_command_timeout));
     ESP_ERROR_CHECK(afe_pipeline_init(models));
 
-    ESP_LOGI(TAG, "Phase 4 up: wake word + capture + local commands");
+    ESP_LOGI(TAG, "Phase 5 up: local commands + cloud STT");
 }
