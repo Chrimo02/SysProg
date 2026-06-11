@@ -19,7 +19,7 @@
 | 3 | Audio-Capture + Recording-Buffer | ✅ erledigt | 2026-06-10, am Gerät verifiziert: WAV via UART-Dump extrahiert, Sprache anhörbar |
 | 4 | MultiNet + Lokale Commands | ✅ erledigt | 2026-06-11, User-Test ok bis auf "thirty minutes" (niedrige Prio, s.u.) |
 | 5 | Groq Whisper Integration | ✅ erledigt | 2026-06-12, User-Test bestanden (inkl. Touch-Trigger + Farb-Fix, Transkript-Bubble ok) |
-| 6 | Gemini Flash Integration | ✅ erledigt | 2026-06-12, per Lautsprecher-Test verifiziert (2 Runden inkl. History-Follow-up); User-Test ausstehend |
+| 6 | Gemini Flash Integration | ✅ erledigt | 2026-06-12, User-Test bestanden (Lautsprecher-Test davor: 2 Runden inkl. History-Follow-up) |
 | 7 | Gemini TTS + Wiedergabe | ⬜ offen | |
 | 8 | Polish + Robustness | ⬜ offen | |
 | 9 (optional) | AEC | ⬜ offen | |
@@ -67,6 +67,8 @@ Außerdem erneut ein MultiNet-False-Positive ("stop", prob 0.09, fraß
 einen Query) — bekanntes Problem, siehe Session 7. Und: echte
 Gemini-Antworten enthalten Umlaute — der ASCII-Font (Montserrat 14)
 zeigt die nicht an; der Custom-Font (Phase 8) wird damit drängender.
+
+**User-Test 2026-06-12 bestanden.** Phase 6 damit komplett.
 
 **Nächster Schritt:** Phase 7 — Gemini TTS + Wiedergabe (`tts.c`:
 `responseModalities=AUDIO`, Response in PSRAM, Base64-Decode → PCM
