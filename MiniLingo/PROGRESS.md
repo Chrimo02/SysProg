@@ -125,6 +125,25 @@ Whisper (`whisper.c`, Multipart-Upload des Recording-Buffers,
 menuconfig gesetzt; Canned-WAVs mit Gemini-TTS (Voice Kore)
 regeneriert.
 
+**TODO Canned-Voice-Samples (User-Wunsch 2026-06-11):** Die
+Voice-Samples nochmal neu generieren mit einer **männlichen Stimme**
+— Wunschrichtung: „britischer Gentleman". Der User will die
+Stimmen-Auswahl **selbst anhören und entscheiden**. Vorgehen:
+1. Pro Kandidat-Stimme 1 Probe-Satz generieren (männliche
+   Gemini-Voices: Puck, Charon, Fenrir; Stil lässt sich zusätzlich
+   per Text-Prompt steuern, z.B. "Say like a refined British
+   gentleman: ..." — ausprobieren, was die TTS-Preview hergibt)
+   und dem User lokal vorspielen (`afplay`).
+2. Gewählte Stimme: alle 13 Phrasen via
+   `scripts/generate_canned_tts.py --engine gemini --voice <X>`
+   regenerieren (Achtung Free-Tier: ~15 Requests/Tag — Proben und
+   Vollgenerierung ggf. auf zwei Tage verteilen; `--skip-existing`
+   zum Fortsetzen) und `GEMINI_VOICE_NAME` in menuconfig angleichen,
+   damit die Phase-7-Antworten dieselbe Stimme bekommen.
+   Nebenbei: 4 Files sind noch `say`-Stimme (tts_time_left,
+   tts_volume_changed, tts_muted, tts_unmuted) — Quota war
+   erschöpft; werden dabei mit ersetzt.
+
 **Offene Fragen/Blocker:** keine. Timer-Phrasen matchen mit niedrigen
 Wahrscheinlichkeiten (0.05–0.15) — falls beim User-Test einzelne
 Phrasen nicht greifen, zuerst Decoder-Rohtext loggen
