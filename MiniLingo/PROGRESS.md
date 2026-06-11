@@ -65,6 +65,20 @@ missing`, AFE-Pipeline läuft. Aufbau:
 - `main.c`: Command-Dispatch + UI-Events (grüne Local-Bubble pro
   Command, Mic-Button kurz grün, Volume-Anzeige, Timer-Countdown).
 
+**Hardware-Vorfall (2026-06-11, behoben):** Nach dem Phase-4-Flash
+reagierte das Wake Word nicht mehr — das Mic lieferte konstant
+Vollausschlag. Ursache war ein Kurzschluss im Aufbau zwischen
+Amp-BCLK (GPIO 15) und Mic-SD (GPIO 6), der erst auffiel, seit
+Phase 4 den I2S1 aktiv taktet (vorher: GPIO 15 nie angesteuert, alle
+Einzeltests grün). Diagnose: Mic-RMS-Log (`afe_pipeline.c`, Debug-
+Level) zeigte rms 32767; mic_test solo ok; mic+amp-Kombi-Test las
+0x555555 (= 512-kHz-BCLK); GPIO-Toggle-Test bewies GPIO15→GPIO6.
+Verkabelung korrigiert, Wake Word wieder verifiziert (Ruhe-RMS
+15–20, Detections ok). Der Kurzschluss erklärt vermutlich auch den
+zwischenzeitlichen Brownout/USB-Ausfall (Bus-Kontention Mic gegen
+GPIO-15-Treiber). Merksatz: Bei "Mic liefert konstant Max" zuerst
+Pegel-Log auf INFO heben und Leitungen per GPIO-Toggle durchpruefen.
+
 **Acceptance-Test Phase 4 (ausstehend):** "Alexa" → "set timer five
 minutes" → Bestätigungsansage, Status-Bar zählt runter, am Ende
 Alarm. Außerdem prüfen: "stop timer"/"cancel timer", "how much time
