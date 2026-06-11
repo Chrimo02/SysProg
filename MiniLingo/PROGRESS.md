@@ -23,7 +23,7 @@
 | 7 | Gemini TTS + Wiedergabe | ⬜ offen | |
 | 8 | Polish + Robustness | ⬜ offen | |
 | 9 (optional) | AEC | ⬜ offen | |
-| 10 (optional) | Function-Calling für freie Timer-Werte | ⬜ offen | |
+| 10 | Function-Calling für freie Timer-Werte | ⬜ offen | **Nicht mehr optional** — User-Anforderung 2026-06-11: jede gewünschte Sekunden-/Minutenzahl muss über Gemini-Function-Calls funktionieren (MultiNet kann nur das feste 6er-Set) |
 
 ---
 
@@ -129,7 +129,11 @@ regeneriert.
 Wahrscheinlichkeiten (0.05–0.15) — falls beim User-Test einzelne
 Phrasen nicht greifen, zuerst Decoder-Rohtext loggen
 (`get_results()->raw_string` im Detecting-State) und Phonem-Alias
-ergänzen. Touch-Feinkalibrierung weiterhin optional. Hinweise aus
+ergänzen. User-Test 2026-06-11: alle Timer-Werte ok außer
+**"thirty minutes"** (matcht nicht; vermutlich Kollision mit
+"thirty seconds", beide beginnen `vkDm`) — niedrige Prio, weil
+Phase 10 (Function-Calling, jetzt fest eingeplant) ohnehin beliebige
+Timer-Werte über die Cloud nachliefert. Touch-Feinkalibrierung weiterhin optional. Hinweise aus
 Phase 2, die weiter gelten: WakeNet-Threshold auf Model-Default
 (0.64) belassen; ESP32-S3 kann nur 2,4-GHz-WiFi (5-GHz-SSID →
 reason 201).
