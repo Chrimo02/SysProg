@@ -80,7 +80,11 @@ esp_err_t display_init(void)
     ESP_LOGI(TAG, "Installing ILI9341 panel driver");
     esp_lcd_panel_dev_config_t panel_config = {
         .reset_gpio_num = PIN_NUM_RST,
-        .color_space = ESP_LCD_COLOR_SPACE_RGB,
+        // Dieses Panel ist BGR (MADCTL-BGR-Bit): mit RGB waren Rot und
+        // Blau vertauscht (User-Bubble orange statt blau, Listening-
+        // Button blau statt rot). Unabhaengig vom Byte-Swap im
+        // Flush-Callback, der nur die Endianness korrigiert.
+        .color_space = ESP_LCD_COLOR_SPACE_BGR,
         .bits_per_pixel = 16,
     };
     ESP_RETURN_ON_ERROR(esp_lcd_new_panel_ili9341(io_handle, &panel_config, &s_panel),
