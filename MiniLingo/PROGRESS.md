@@ -18,7 +18,7 @@
 | 2 | WiFi + esp-sr + Wake Word | ✅ erledigt | 2026-06-10, am Gerät verifiziert: Wake Word 3/3 Detections, WiFi verbindet (2,4-GHz-SSID) |
 | 3 | Audio-Capture + Recording-Buffer | ✅ erledigt | 2026-06-10, am Gerät verifiziert: WAV via UART-Dump extrahiert, Sprache anhörbar |
 | 4 | MultiNet + Lokale Commands | ✅ erledigt | 2026-06-11, User-Test ok bis auf "thirty minutes" (niedrige Prio, s.u.) |
-| 5 | Groq Whisper Integration | 🟡 implementiert | 2026-06-12, per Lautsprecher-Test verifiziert (Transkripte wortgenau); User-Test + UI-Sichtpruefung ausstehend |
+| 5 | Groq Whisper Integration | ✅ erledigt | 2026-06-12, User-Test bestanden (inkl. Touch-Trigger + Farb-Fix, Transkript-Bubble ok) |
 | 6 | Gemini Flash Integration | ⬜ offen | |
 | 7 | Gemini TTS + Wiedergabe | ⬜ offen | |
 | 8 | Polish + Robustness | ⬜ offen | |
@@ -82,10 +82,11 @@ vad_cache-Frame-Doppelung aus Session 6 ist also auch im WAV
 hoerbar (fuer Whisper unkritisch, ggf. Phase 8 pruefen, ob der
 Recorder den vad_cache wirklich braucht).
 
-**Nächster Schritt:** User-Test Phase 5 (echte Stimme; auf dem
-Display pruefen: Transkript-Bubble **blau** rechts, Mic-Button rot
-bei Listening / orange + "Processing..." bei Cloud, Touch-Trigger
-per Fingertipp), dann Phase 6 — Gemini Flash (`gemini.c`,
+**User-Test 2026-06-12 bestanden:** Touch-Trigger funktioniert,
+Farben stimmen jetzt (User-Bubble blau, Listening rot), Transkript
+erscheint als Bubble. Phase 5 damit komplett.
+
+**Nächster Schritt:** Phase 6 — Gemini Flash (`gemini.c`,
 JSON-Request mit System-Instruction + History-Ringpuffer in
 `state.c`, Antwort als Assistant-Bubble). Der Einstiegspunkt ist
 `on_cloud_event()`/`network_task` in `main/network/cloud.c`.
