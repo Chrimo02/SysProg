@@ -156,8 +156,14 @@ static void on_local_command(command_id_t id, const char *phrase)
         break;
     case CMD_STOP:
         // Phase 4: bricht Canned-Wiedergabe (v.a. den Alarm) ab;
-        // ab Phase 7 zusaetzlich die Cloud-TTS.
+        // ab Phase 7 zusaetzlich die Cloud-TTS. Laeuft ein Timer,
+        // gilt "stop" als "stop timer" — MultiNet feuert bei
+        // "stop timer" oft schon nach "stop" (Diagnose 2026-06-11).
         canned_audio_stop();
+        if (kitchen_timer_cancel()) {
+            arg = 1;
+            canned_audio_play(CANNED_TIMER_CANCELLED);
+        }
         break;
     case CMD_VOLUME_UP:
         volume_adjust(+VOLUME_STEP);
@@ -206,7 +212,9 @@ static void format_command_bubble(command_id_t id, int arg, char *text,
             snprintf(text, len, "No timer running");
         }
         break;
-    case CMD_STOP:        snprintf(text, len, "Stopped"); break;
+    case CMD_STOP:
+        snprintf(text, len, arg ? "Timer cancelled" : "Stopped");
+        break;
     case CMD_VOLUME_UP:
     case CMD_VOLUME_DOWN:
     case CMD_UNMUTE:      snprintf(text, len, "Volume: %d%%", arg); break;
