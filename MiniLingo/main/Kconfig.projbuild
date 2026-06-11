@@ -24,13 +24,14 @@ menu "MiniLingo Configuration"
 
     config RECORDING_WAV_DUMP
         bool "Dump recordings as Base64 WAV over UART (Phase-3 test)"
-        default y
+        default n
         help
             Gibt nach jedem Audio-Capture den fertigen WAV-Buffer
             Base64-codiert ueber UART aus (Marker WAV_DUMP_BEGIN/END,
             ~30 s bei 115200 Baud). Mit tools/extract_wav.py aus dem
-            gespeicherten Monitor-Log extrahieren. Ab Phase 5
-            (Whisper-Upload) abschalten.
+            gespeicherten Monitor-Log extrahieren. Achtung: schaltet
+            waehrend des Dumps (~30 s) alle Logs stumm — seit Phase 4
+            per Default aus.
 
     config WAKE_WORD_THRESHOLD
         int "WakeNet detection threshold (0-100, 0 = model default)"
