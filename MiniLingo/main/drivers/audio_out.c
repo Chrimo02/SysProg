@@ -27,6 +27,10 @@ esp_err_t audio_out_init(void)
 {
     i2s_chan_config_t chan_cfg =
         I2S_CHANNEL_DEFAULT_CONFIG(I2S_NUM_1, I2S_ROLE_MASTER);
+    // Ohne auto_clear loopt nach dem letzten i2s_channel_write der
+    // DMA-Buffer-Inhalt endlos weiter -> "Knattern" nach jedem
+    // Playback. auto_clear nullt gesendete Deskriptoren.
+    chan_cfg.auto_clear = true;
     ESP_RETURN_ON_ERROR(i2s_new_channel(&chan_cfg, &s_tx_chan, NULL),
                         TAG, "i2s_new_channel");
 
