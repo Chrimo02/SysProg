@@ -24,6 +24,8 @@ import struct
 import subprocess
 import sys
 import tempfile
+import time
+import urllib.error
 import urllib.request
 import wave
 from pathlib import Path
@@ -75,12 +77,31 @@ def gen_gemini(text: str, out: Path, api_key: str, voice: str) -> None:
         data=json.dumps(body).encode(),
         headers={"x-goog-api-key": api_key,
                  "Content-Type": "application/json"})
-    with urllib.request.urlopen(req, timeout=60) as resp:
-        data = json.load(resp)
+    # Free-Tier-Rate-Limit der TTS-Preview-Models ist sehr niedrig
+    # (wenige Requests/Minute) -> bei 429 mit Backoff wiederholen.
+    for attempt in range(6):
+        try:
+            with urllib.request.urlopen(req, timeout=60) as resp:
+                data = json.load(resp)
+            break
+        except urllib.error.HTTPError as e:
+            if e.code != 429 or attempt == 5:
+                raise
+            wait = int(e.headers.get("Retry-After") or 30)
+            print(f"    429 rate limit, warte {wait}s ...")
+            time.sleep(wait)
     part = data["candidates"][0]["content"]["parts"][0]["inlineData"]
     mime = part["mimeType"]  # z.B. audio/L16;codec=pcm;rate=24000
     rate = int(mime.rsplit("rate=", 1)[1]) if "rate=" in mime else 24000
     write_wav(out, base64.b64decode(part["data"]), rate)
+    if rate != SAY_RATE and sys.platform == "darwin":
+        # Auf 16 kHz downsamplen, sonst passen die 14 Files nicht in
+        # die 1-MB-storage-Partition (24 kHz: ~1,3 MB gesamt).
+        tmp = out.with_suffix(".tmp.wav")
+        subprocess.run(["afconvert", "-f", "WAVE",
+                        "-d", f"LEI16@{SAY_RATE}", "-c", "1",
+                        str(out), str(tmp)], check=True)
+        tmp.replace(out)
 
 
 def gen_say(text: str, out: Path, voice: str) -> None:
@@ -133,6 +154,9 @@ def main() -> int:
                          "say: macOS-Voice (Default System-Voice)")
     ap.add_argument("--out-dir",
                     default=Path(__file__).resolve().parent.parent / "spiffs")
+    ap.add_argument("--skip-existing", action="store_true",
+                    help="vorhandene WAVs nicht neu generieren "
+                         "(Resume nach Rate-Limit)")
     args = ap.parse_args()
 
     engine = args.engine
@@ -149,6 +173,10 @@ def main() -> int:
     total = 0
     for name, text in PHRASES.items():
         out = out_dir / name
+        if args.skip_existing and out.exists():
+            total += out.stat().st_size
+            print(f"  {name:28s} {out.stat().st_size:7d} B  (vorhanden)")
+            continue
         if engine == "gemini":
             gen_gemini(text, out, args.api_key, args.voice or "Kore")
         else:
