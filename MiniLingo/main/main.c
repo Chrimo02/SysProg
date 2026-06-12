@@ -5,8 +5,9 @@
 // Commands, Kitchen-Timer, Lautstaerke und Canned-TTS aus SPIFFS
 // (Phase 4) und den network_task, der Aufnahmen ohne lokalen
 // Command-Match an Groq Whisper schickt (Phase 5, User-Bubble), das
-// Transkript an Gemini weiterreicht (Phase 6, Assistant-Bubble) und
-// die Antwort per Gemini-TTS vorliest (Phase 7, SPEAKING-State;
+// Transkript ans LLM weiterreicht (Phase 6, Assistant-Bubble; seit
+// 2026-06-12 Cerebras statt Gemini) und die Antwort per Gemini-TTS
+// vorliest (Phase 7, SPEAKING-State, per Kconfig deaktivierbar;
 // "stop" bricht die Wiedergabe ab).
 //
 // Thread-Grenzen: WiFi-Events (Event-Loop-Task), Wake-Word-, Recorder-

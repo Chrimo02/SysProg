@@ -21,8 +21,24 @@ menu "MiniLingo Configuration"
             Latenz kostet und die Genauigkeit verschlechtert.
             Freie Fragen an MiniLingo sind deutsch -> "de".
 
+    config CEREBRAS_API_KEY
+        string "Cerebras API Key"
+        default ""
+        help
+            Fuer die Text-Antworten (LLM, ersetzt seit 2026-06-12
+            Gemini — Free Tier 1 Mio. Token/Tag statt 250 Requests).
+            Key von cloud.cerebras.ai.
+
+    config LLM_MODEL
+        string "Cerebras LLM model"
+        default "llama-3.3-70b"
+        help
+            Modellname fuer api.cerebras.ai/v1/chat/completions.
+            Alternativen im Free Tier: gpt-oss-120b (staerker,
+            Reasoning-Model = mehr Latenz/Token), qwen-3-32b.
+
     config GEMINI_API_KEY
-        string "Gemini API Key"
+        string "Gemini API Key (nur noch TTS, Phase 7)"
         default ""
 
     config GEMINI_VOICE_NAME

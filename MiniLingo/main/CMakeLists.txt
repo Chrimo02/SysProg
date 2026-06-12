@@ -15,7 +15,7 @@ idf_component_register(
          "network/cloud.c"
          "network/http_util.c"
          "network/whisper.c"
-         "network/gemini.c"
+         "network/llm.c"
          "network/tts.c"
          "debug/wav_dump.c"
          "speech/afe_pipeline.c"

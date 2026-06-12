@@ -16,7 +16,7 @@
 #include "network/wifi.h"
 #include "state.h"
 #include "whisper.h"
-#include "gemini.h"
+#include "llm.h"
 #include "tts.h"
 #include "cloud.h"
 
@@ -86,9 +86,9 @@ static void network_task(void *arg)
             s_cb(CLOUD_EVT_ERROR, "Transcription failed");
         } else {
             s_cb(CLOUD_EVT_TRANSCRIPT, text);
-            // Gemini direkt im Anschluss — die Whisper-Verbindung ist
+            // LLM direkt im Anschluss — die Whisper-Verbindung ist
             // hier schon geschlossen (TLS strikt sequenziell).
-            if (gemini_generate(text, reply, sizeof(reply)) == ESP_OK) {
+            if (llm_generate(text, reply, sizeof(reply)) == ESP_OK) {
                 // History erst bei Erfolg fortschreiben: sie enthaelt
                 // nur vollstaendige User/Model-Paare.
                 chat_history_push(CHAT_ROLE_USER, text);
