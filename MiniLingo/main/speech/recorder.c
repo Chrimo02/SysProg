@@ -24,6 +24,7 @@ static recorder_done_cb_t s_done_cb;
 static uint8_t *s_buf;        // PSRAM: WAV_HEADER_BYTES + PCM_MAX_BYTES
 static size_t s_pcm_bytes;
 static uint32_t s_silence_ms;
+static uint32_t s_speech_ms;
 static bool s_active;
 
 esp_err_t recorder_init(recorder_done_cb_t cb)
@@ -45,6 +46,7 @@ void recorder_start(void)
 {
     s_pcm_bytes = 0;
     s_silence_ms = 0;
+    s_speech_ms = 0;
     s_active = true;
     ESP_LOGI(TAG, "capture started");
 }
@@ -68,14 +70,14 @@ static void finish(recorder_stop_reason_t reason)
     wav_write_header(s_buf, (uint32_t)s_pcm_bytes, SAMPLE_RATE, 1, 16);
 
     uint32_t duration_ms = (uint32_t)(s_pcm_bytes / BYTES_PER_MS);
-    ESP_LOGI(TAG, "capture done: %u ms, %u bytes WAV (%s)",
-             (unsigned)duration_ms,
+    ESP_LOGI(TAG, "capture done: %u ms (%u ms speech), %u bytes WAV (%s)",
+             (unsigned)duration_ms, (unsigned)s_speech_ms,
              (unsigned)(WAV_HEADER_BYTES + s_pcm_bytes),
              reason == RECORDER_STOP_SILENCE ? "silence" : "buffer full");
 
     if (s_done_cb) {
         s_done_cb(s_buf, WAV_HEADER_BYTES + s_pcm_bytes, duration_ms,
-                  reason);
+                  s_speech_ms, reason);
     }
 }
 
@@ -97,6 +99,7 @@ void recorder_feed(const int16_t *data, size_t bytes, bool is_speech)
 
     if (is_speech) {
         s_silence_ms = 0;
+        s_speech_ms += bytes / BYTES_PER_MS;
     } else {
         s_silence_ms += bytes / BYTES_PER_MS;
         if (s_silence_ms >= SILENCE_STOP_MS) {

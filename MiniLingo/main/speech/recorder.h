@@ -13,10 +13,14 @@ typedef enum {
 
 // Callback nach Capture-Ende. wav zeigt auf den fertigen WAV-Buffer
 // (44-Byte-Header + PCM) im PSRAM; er bleibt gueltig bis zum naechsten
-// recorder_start(). Laeuft im Kontext des afe_fetch_task (Core 1) —
-// keine LVGL-Calls, nur Flags/Queues setzen.
+// recorder_start(). speech_ms = Summe der Frames mit VAD_SPEECH
+// (Phase 8: Stille-Guard — fast stumme Aufnahmen nicht zu Whisper
+// schicken, der halluziniert daraus Saetze wie "Vielen Dank.").
+// Laeuft im Kontext des afe_fetch_task (Core 1) — keine LVGL-Calls,
+// nur Flags/Queues setzen.
 typedef void (*recorder_done_cb_t)(const uint8_t *wav, size_t wav_bytes,
                                    uint32_t duration_ms,
+                                   uint32_t speech_ms,
                                    recorder_stop_reason_t reason);
 
 // Allokiert den Recording-Buffer im PSRAM (8 s @ 16 kHz @ 16 bit

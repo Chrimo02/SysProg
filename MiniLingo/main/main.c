@@ -1,4 +1,4 @@
-// MiniLingo Phase 7: Gemini TTS + Wiedergabe.
+// MiniLingo Phase 8: Polish + Robustness.
 // app_main initialisiert LVGL/Display/Touch/UI (Phase 1), NVS, WiFi-STA,
 // die AFE-Pipeline mit WakeNet9-Mycroft (Phase 2; bis 2026-06-11
 // Alexa), den Recording-Buffer (Phase 3), MultiNet7-EN mit 14 lokalen
@@ -24,6 +24,7 @@
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "nvs_flash.h"
+#include "sdkconfig.h"
 #include "lvgl.h"
 
 #include "debug/wav_dump.h"
@@ -47,6 +48,15 @@ static const char *TAG = "main";
 #define IDLE_STATE_TEXT  "Listening for Mycroft"
 #define INITIAL_VOLUME   60
 
+// Stille-Guard (Phase 8): Aufnahmen mit weniger VAD-Sprache gehen
+// nicht zu Whisper — der halluziniert aus (fast) reiner Stille Saetze
+// wie "Vielen Dank." (beobachtet 2026-06-12), und Gemini antwortet
+// dann artig darauf. Gemessen am Geraet (2026-06-12): leere Captures
+// melden trotzdem 576-608 ms "Speech" (VAD-Nachhall des Wake Words);
+// eine echte kurze Frage liegt bei 3700 ms. 1000 ms trennt sauber —
+// selbst Mini-Queries ("Wer bist du?") kommen mit Nachhall drueber.
+#define MIN_SPEECH_MS    1000
+
 // -1 = keine Aenderung, 0 = getrennt, 1 = verbunden
 static atomic_int s_wifi_event = -1;
 static atomic_bool s_wake_event;
@@ -62,6 +72,7 @@ static atomic_bool s_timer_done_event;
 // geschrieben; es ist nur ein Cloud-Query gleichzeitig in flight
 // (cloud_is_busy-Gate).
 static atomic_bool s_processing_event;
+static atomic_bool s_too_quiet_event;
 static atomic_bool s_transcript_event;
 static atomic_bool s_reply_event;
 static atomic_bool s_speaking_event;
@@ -139,10 +150,19 @@ static void submit_cloud_query(void)
 }
 
 static void on_recording_done(const uint8_t *wav, size_t wav_bytes,
-                              uint32_t duration_ms,
+                              uint32_t duration_ms, uint32_t speech_ms,
                               recorder_stop_reason_t reason)
 {
     wav_dump_trigger(wav, wav_bytes);
+    // Stille-Guard (Phase 8): fast stumme Aufnahme verwerfen statt
+    // hochladen. Die MultiNet-Session laeuft normal in ihren Timeout;
+    // on_command_timeout findet dann kein pending WAV mehr vor.
+    if (speech_ms < MIN_SPEECH_MS) {
+        ESP_LOGW(TAG, "discarding capture: only %u ms speech",
+                 (unsigned)speech_ms);
+        atomic_store(&s_too_quiet_event, true);
+        return;
+    }
     s_pending_wav = wav;
     s_pending_wav_bytes = wav_bytes;
     if (s_mn_timed_out) {
@@ -372,6 +392,15 @@ static void app_event_timer_cb(lv_timer_t *timer)
         ui_mic_button_set_state(UI_MIC_PROCESSING);
     }
 
+    // Stille-Guard: Aufnahme verworfen — kurzer Hinweis + Cue, zurueck
+    // zu Idle (Phase 8).
+    if (atomic_exchange(&s_too_quiet_event, false)) {
+        ui_chat_add_local_bubble("Didn't catch that");
+        canned_audio_play(CANNED_ERROR);
+        s_listening = false;
+        ui_mic_button_set_state(UI_MIC_IDLE);
+    }
+
     if (atomic_exchange(&s_transcript_event, false)) {
         ui_chat_add_user_bubble(s_transcript);
         // PROCESSING bleibt stehen — Gemini laeuft noch (Phase 6).
@@ -399,6 +428,8 @@ static void app_event_timer_cb(lv_timer_t *timer)
         char text[64];
         snprintf(text, sizeof(text), "Cloud: %s", s_cloud_error);
         ui_chat_add_local_bubble(text);
+        // Error-Recovery (Phase 8): kurzer Audio-Cue, zurueck zu Idle.
+        canned_audio_play(CANNED_ERROR);
         s_processing = false;
         s_speaking = false;
         ui_mic_button_set_state(UI_MIC_IDLE);
@@ -428,7 +459,7 @@ static void app_event_timer_cb(lv_timer_t *timer)
 
 void app_main(void)
 {
-    ESP_LOGI(TAG, "MiniLingo Phase 7 starting");
+    ESP_LOGI(TAG, "MiniLingo Phase 8 starting");
 
     esp_err_t err = nvs_flash_init();
     if (err == ESP_ERR_NVS_NO_FREE_PAGES ||
@@ -477,5 +508,9 @@ void app_main(void)
                                   on_command_timeout));
     ESP_ERROR_CHECK(afe_pipeline_init(models));
 
-    ESP_LOGI(TAG, "Phase 7 up: local commands + cloud STT + LLM + TTS");
+    ESP_LOGI(TAG, "Phase 8 up: local commands + cloud STT + LLM"
+#if CONFIG_TTS_SPEAK_REPLIES
+                  " + TTS"
+#endif
+    );
 }

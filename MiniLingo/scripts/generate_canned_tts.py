@@ -9,8 +9,8 @@ Engines:
           da ist): say -> AIFF, afconvert -> 16 kHz/16 bit/mono WAV.
   auto    gemini falls API-Key gesetzt, sonst say (Default).
 
-Das Alarm-File (tts_alarm.wav) wird immer synthetisiert (Beep-Pattern,
-kein TTS). Aufruf aus dem Projekt-Root:
+Alarm- und Fehler-File (tts_alarm.wav, tts_error.wav) werden immer
+synthetisiert (Beep-Pattern, kein TTS). Aufruf aus dem Projekt-Root:
 
     python3 scripts/generate_canned_tts.py [--engine auto|gemini|say]
 """
@@ -119,29 +119,39 @@ def gen_say(text: str, out: Path, voice: str) -> None:
         aiff.unlink(missing_ok=True)
 
 
+def synth_tone(pcm: bytearray, freq: int, ms: int, amp: float = 0.6,
+               rate: int = SAY_RATE) -> None:
+    n = rate * ms // 1000
+    for i in range(n):
+        # 10-ms-Fade an beiden Enden gegen Klicks
+        env = min(1.0, i / (rate * 0.01), (n - 1 - i) / (rate * 0.01))
+        v = int(32767 * amp * env * math.sin(2 * math.pi * freq * i / rate))
+        pcm.extend(struct.pack("<h", v))
+
+
+def synth_silence(pcm: bytearray, ms: int, rate: int = SAY_RATE) -> None:
+    pcm.extend(b"\x00\x00" * (rate * ms // 1000))
+
+
 def gen_alarm(out: Path) -> None:
     """3x (3 Beeps 880 Hz, 120 ms) mit Pausen — klassischer Kuechenwecker."""
-    rate = SAY_RATE
     pcm = bytearray()
-
-    def tone(freq, ms, amp=0.6):
-        n = rate * ms // 1000
-        for i in range(n):
-            # 10-ms-Fade an beiden Enden gegen Klicks
-            env = min(1.0, i / (rate * 0.01), (n - 1 - i) / (rate * 0.01))
-            v = int(32767 * amp * env * math.sin(2 * math.pi * freq * i / rate))
-            pcm.extend(struct.pack("<h", v))
-
-    def silence(ms):
-        pcm.extend(b"\x00\x00" * (rate * ms // 1000))
-
     for burst in range(3):
         for _ in range(3):
-            tone(880, 120)
-            silence(80)
+            synth_tone(pcm, 880, 120)
+            synth_silence(pcm, 80)
         if burst < 2:
-            silence(400)
-    write_wav(out, bytes(pcm), rate)
+            synth_silence(pcm, 400)
+    write_wav(out, bytes(pcm), SAY_RATE)
+
+
+def gen_error(out: Path) -> None:
+    """Kurzer absteigender Doppelton — Fehler-Cue (Phase 8)."""
+    pcm = bytearray()
+    synth_tone(pcm, 660, 130, amp=0.45)
+    synth_silence(pcm, 50)
+    synth_tone(pcm, 440, 180, amp=0.45)
+    write_wav(out, bytes(pcm), SAY_RATE)
 
 
 def main() -> int:
@@ -188,6 +198,10 @@ def main() -> int:
     gen_alarm(alarm)
     total += alarm.stat().st_size
     print(f"  {'tts_alarm.wav':28s} {alarm.stat().st_size:7d} B  (Beeps)")
+    error = out_dir / "tts_error.wav"
+    gen_error(error)
+    total += error.stat().st_size
+    print(f"  {'tts_error.wav':28s} {error.stat().st_size:7d} B  (Beeps)")
     print(f"Summe: {total / 1024:.0f} KB -> {out_dir}")
     return 0
 

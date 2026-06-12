@@ -129,11 +129,6 @@ static void afe_fetch_task(void *arg)
         }
 
         if (recorder_is_active() || commands_session_active()) {
-            // vad_cache enthaelt vom VAD zurueckgehaltene Samples, die
-            // zeitlich VOR res->data liegen — zuerst anhaengen, damit
-            // der Sprachanfang nicht abgeschnitten wird. MultiNet
-            // bekommt dieselben Frames wie der Recorder.
-            //
             // Die MultiNet-Session laeuft bewusst WEITER, wenn der
             // Recorder schon bei 1,5 s Stille stoppt: MultiNets
             // Endpoint braucht bei langen Phrasen ("set timer five
@@ -142,15 +137,17 @@ static void afe_fetch_task(void *arg)
             // ist erst Match oder MultiNet-Timeout (6 s); ab Phase 5
             // darf der Cloud-Upload deshalb erst nach dem
             // Session-Ende starten.
-            // MultiNet bekommt den vad_cache NICHT: er ueberlappt
-            // offenbar mit bereits gelieferten Frames (Decoder hoerte
-            // verdoppelte Phrasenanfaenge wie "SfPSfT" = "set set"),
-            // was die CTC/FST-Scores der laengeren Phrasen drueckt.
-            // Der Recorder behaelt ihn (Sprachanfang im WAV).
-            if (res->vad_cache_size > 0) {
-                recorder_feed(res->vad_cache, (size_t)res->vad_cache_size,
-                              true);
-            }
+            //
+            // Der vad_cache geht weder an MultiNet noch (seit Phase 8)
+            // an den Recorder: er ueberlappt mit bereits gelieferten
+            // Frames statt nur aelteres Audio nachzuliefern — der
+            // MultiNet-Decoder hoerte verdoppelte Phrasenanfaenge
+            // ("SfPSfT" = "set set", Session 6), und im WAV war die
+            // Doppelung hoerbar (Whisper: "Set Set Timer", Session 7).
+            // Das Capture beginnt ohnehin direkt nach dem Wake Word,
+            // lange bevor der Query-Satz anfaengt — der Sprachanfang
+            // ist also auch ohne vad_cache vollstaendig.
+            //
             // Bei einem MultiNet-Match bricht der Callback (main.c) die
             // Aufnahme per recorder_abort() ab — recorder_feed dahinter
             // ist dann ein no-op (ebenso nach Capture-Ende).

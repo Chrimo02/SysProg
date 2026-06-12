@@ -21,6 +21,7 @@
 #define CANNED_MUTED           "tts_muted.wav"
 #define CANNED_UNMUTED         "tts_unmuted.wav"
 #define CANNED_ALARM           "tts_alarm.wav"
+#define CANNED_ERROR           "tts_error.wav"
 
 // Mountet SPIFFS (Partition "storage"), prueft die erwarteten Files
 // und startet den Player-Task (audio_out_task der Spec-Task-Tabelle).
