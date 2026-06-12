@@ -21,13 +21,75 @@
 | 5 | Groq Whisper Integration | ✅ erledigt | 2026-06-12, User-Test bestanden (inkl. Touch-Trigger + Farb-Fix, Transkript-Bubble ok) |
 | 6 | Gemini Flash Integration | ✅ erledigt | 2026-06-12, User-Test bestanden (Lautsprecher-Test davor: 2 Runden inkl. History-Follow-up) |
 | 7 | Gemini TTS + Wiedergabe | ✅ erledigt | 2026-06-12, E2E vom User bestätigt. **TTS auf User-Wunsch pausiert** (Latenz + Free-Tier-Limit 10 Req./Tag) — Text-Antwort genügt einstweilen, bis eine performantere TTS-Lösung gefunden ist. Details s.u. |
-| 8 | Polish + Robustness | ⬜ offen | |
+| 8 | Polish + Robustness | 🔶 implementiert | 2026-06-12, geflasht + am Gerät getestet (Stille-Guard, Umlaute-Pipeline); User-Test ausstehend (Animationen, Font-Rendering, Error-Beep, 20-Interaktionen-Acceptance) |
 | 9 (optional) | AEC | ⬜ offen | |
 | 10 | Function-Calling für freie Timer-Werte | ⬜ offen | **Nicht mehr optional** — User-Anforderung 2026-06-11: jede gewünschte Sekunden-/Minutenzahl muss über Gemini-Function-Calls funktionieren (MultiNet kann nur das feste 6er-Set) |
 
 ---
 
 ## Aktueller Stand / Nächster Schritt
+
+**Stand 2026-06-12 (Session 10): Phase 8 implementiert, geflasht und
+am Gerät getestet (per `say`-Lautsprecher-Test).** Umfang:
+
+- **Latin-1-Font** (`main/ui/font_montserrat_14_latin1.c`, generiert
+  per `npx lv_font_conv` aus dem LVGL-eigenen Montserrat-TTF;
+  Kommandozeile steht im Dateikopf): Umlaute/ß plus typografische
+  Anführungszeichen/Gedankenstrich/Ellipse, die Gemini gern ausgibt.
+  Nur für die Chat-Bubble-Labels — Status-Bar und Mic-Button brauchen
+  die FontAwesome-Symbole des Default-Fonts (Montserrat 14, ASCII).
+- **Retry mit Exponential Backoff** (`http_util.h`:
+  `HTTP_MAX_ATTEMPTS` 3, Delays 1 s/2 s): whisper/gemini/tts haben
+  jetzt `*_once()` + Retry-Wrapper. Transient (wird wiederholt) =
+  Verbindungsfehler, HTTP 429, 5xx, kaputte Antworten
+  (finishReason=OTHER ohne Audio); permanent = restliche 4xx
+  (`ESP_ERR_INVALID_RESPONSE`), fehlender Key, TTS-Tageslimit
+  (`ESP_ERR_NOT_ALLOWED`, Warten hilft erst morgen). Der
+  Einmal-Retry aus Session 9 in `cloud.c` ist dadurch ersetzt.
+- **Kconfig `TTS_SPEAK_REPLIES`** (Default **n**, User-Wunsch aus
+  Session 9): TTS komplett abschaltbar; aus spart auch die 2,5 MB
+  PSRAM-TTS-Buffer (tts_init wird nicht gerufen). Keine
+  "TTS daily limit"-Bubbles mehr im Text-only-Betrieb.
+- **Error-Recovery + Audio-Cue**: jeder Cloud-Fehler spielt jetzt
+  `tts_error.wav` (kurzer absteigender Doppelton, synthetisch wie der
+  Alarm — `gen_error()` in `scripts/generate_canned_tts.py`, kostet
+  keine TTS-Quota) und geht zurück zu Idle.
+- **Stille-Guard**: Captures mit < 1000 ms VAD-Sprache werden
+  verworfen statt hochgeladen (Bubble "Didn't catch that" + Error-Cue).
+  Am Gerät vermessen: leere Aufnahmen melden 576-608 ms "Speech"
+  (VAD-Nachhall des Wake Words!), eine echte kurze Frage 3712 ms —
+  die erste Schwellen-Idee (250 ms) hätte NICHT gereicht, die
+  Whisper-Halluzination ("Vielen Dank." → "Gern geschehen!") wurde
+  damit am Gerät reproduziert. Mit 1000 ms verifiziert: Discard-Log,
+  Error-Beep, kein Upload.
+- **Mic-Button-Animationen** (`ui_mic_button.c`): Puls
+  (Scale-Animation 100→115 %, 500 ms Playback) bei LISTENING,
+  oranger Spinner-Ring um den Button bei PROCESSING.
+- **vad_cache geht auch nicht mehr an den Recorder**
+  (`afe_pipeline.c`): er überlappt mit bereits gelieferten Frames
+  (Session-6/7-Diagnose, Whisper hörte "Set Set Timer") — das Capture
+  beginnt ohnehin direkt nach dem Wake Word, der Sprachanfang ist
+  auch ohne ihn vollständig.
+- **WiFi-Reconnect** (Spec-Phase-8-Punkt) existiert seit Phase 2
+  (`wifi.c`: Reconnect-Timer 5 s); **Touch-Kalibrierungs-Screen**
+  bewusst weggelassen (laut Komponententest/Alltag nicht nötig,
+  "Feinkalibrierung optional").
+
+**Verifiziert am Gerät:** Boot sauber (SPIFFS 15 Files, 0 missing),
+WiFi verbindet, "Mycroft" + Stille → Discard + Error-Beep, "Mycroft" +
+"Wie heißt die Hauptstadt von Österreich?" → Whisper wortgenau (inkl.
+ß/Ö) → Gemini "Die Hauptstadt von Österreich ist Wien." **Vom User zu
+testen:** Umlaut-Rendering auf dem Display, Puls/Spinner-Optik,
+Error-Beep-Lautstärke, Spec-Acceptance (20 Interaktionen ohne Reset,
+WiFi-Drop). Achtung: TTS ist jetzt per Kconfig aus — zum Reaktivieren
+`TTS_SPEAK_REPLIES` in menuconfig setzen (der "stop"-während-
+Wiedergabe-Test aus Session 9 ist weiterhin offen).
+
+**Nächster Schritt:** User-Test Phase 8, danach Phase 10
+(Function-Calling für freie Timer-Werte, fest eingeplant). Phase 9
+(AEC) bleibt optional.
+
+---
 
 **Nachtrag 2026-06-12 (Session 9, Fortsetzung): User-Test Phase 7 +
 False-Positive-Fixes.** Der User hat mit einem frischen API-Key
@@ -399,9 +461,12 @@ end-to-end.
 - **LVGL-Version**: 9.5.0 (Managed Component `lvgl/lvgl ^9`).
 - **Mic-Button-Symbol**: LVGL hat kein Mikrofon-Glyph im Default-Font;
   vorerst `LV_SYMBOL_AUDIO` als Platzhalter.
-- **Umlaute**: Der Default-Font (Montserrat 14) enthält nur ASCII —
-  Dummy-Texte sind umlautfrei. Für echte deutsche Antworten braucht es
-  später (Phase 8) einen Custom-Font mit Latin-1-Range.
+- **Umlaute**: Der Default-Font (Montserrat 14) enthält nur ASCII.
+  Seit Phase 8 nutzen die Chat-Bubbles den Custom-Font
+  `font_montserrat_14_latin1` (Latin-1 + typografische Zeichen,
+  generiert per `npx lv_font_conv`, Kommandozeile im Dateikopf) —
+  Status-Bar/Mic-Button bleiben beim Default-Font, weil sie dessen
+  FontAwesome-Symbole (WiFi, Audio) brauchen.
 - **Partitionstabelle** (`model`/`storage`-Partitionen) schon in Phase 1
   angelegt statt erst mit esp-sr/SPIFFS, um spätere Re-Flashes zu
   vermeiden.
@@ -496,7 +561,28 @@ end-to-end.
 - **Gemini-TTS-Free-Tier: 10 Requests/Tag** (verifiziert 2026-06-12,
   Quota `GenerateRequestsPerDayPerProjectPerModel-FreeTier`), nicht
   ~15 wie zuvor angenommen. HTTP 429 → eigene UI-Meldung
-  "TTS daily limit"; Retry/Backoff kommt in Phase 8.
+  "TTS daily limit"; das Tageslimit wird bewusst NICHT wiederholt
+  (Phase-8-Retry greift nur bei transienten Fehlern).
+- **Retry-Policy (Phase 8)**: alle Cloud-Requests bis zu 3 Versuche
+  mit Backoff 1 s/2 s (`HTTP_MAX_ATTEMPTS` in `http_util.h`).
+  Transient = Verbindungsfehler/429/5xx/kaputte Antwort; permanent =
+  4xx (`ESP_ERR_INVALID_RESPONSE`), kein API-Key, TTS-Tageslimit.
+- **TTS per Kconfig abschaltbar** (`TTS_SPEAK_REPLIES`, Default n —
+  Phase 8, User-Wunsch): Free-Tier-Limit zu knapp, TTS-Latenz 3-5 s.
+  Aus spart 2,5 MB PSRAM (TTS-Buffer werden nicht allokiert).
+- **Stille-Guard 1000 ms** (Phase 8, `MIN_SPEECH_MS` in `main.c`):
+  Captures mit weniger VAD-Sprache gehen nicht zu Whisper
+  (Stille-Halluzination). Achtung bei Re-Tuning: das VAD meldet
+  ~600 ms Phantom-"Speech" pro Capture (Nachhall des Wake Words),
+  echte kurze Fragen liegen bei ~3700 ms.
+- **vad_cache wird komplett ignoriert** (Phase 8; Phase 4-7 bekam ihn
+  noch der Recorder): er überlappt mit bereits gelieferten Frames
+  statt älteres Audio nachzuliefern (MultiNet-Decoder: "SfPSfT" =
+  "set set"; Whisper: "Set Set Timer"). Capture startet direkt nach
+  dem Wake Word, der Sprachanfang ist trotzdem vollständig.
+- **Kein Touch-Kalibrierungs-Screen** (Spec-Phase-8-Punkt bewusst
+  übersprungen): Touch trifft seit Phase 1 zuverlässig,
+  Feinkalibrierung war in allen Tests "optional".
 - **Touch-Trigger (Mic-Button) ist implementiert** (2026-06-12; in
   der Spec als Trigger vorgesehen, aber keiner Phase zugeordnet):
   LVGL-Klick -> `afe_pipeline_request_listening()` (atomares Flag)
