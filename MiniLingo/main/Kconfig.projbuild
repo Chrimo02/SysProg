@@ -31,6 +31,17 @@ menu "MiniLingo Configuration"
         help
             Available: Kore, Puck, Charon, Fenrir, Aoede
 
+    config TTS_SPEAK_REPLIES
+        bool "Speak cloud replies via Gemini TTS"
+        default n
+        help
+            Liest Gemini-Antworten per Gemini-TTS vor (Phase 7).
+            Default aus (Stand 2026-06-12, User-Wunsch): das
+            Free-Tier-Limit der TTS-Preview (10 Requests/Tag) ist
+            fuer den Alltag zu knapp und der TTS-Request kostet
+            3-5 s Latenz — die Text-Antwort auf dem Display genuegt.
+            Aus spart ausserdem 2,5 MB PSRAM (TTS-Buffer).
+
     config RECORDING_WAV_DUMP
         bool "Dump recordings as Base64 WAV over UART (Phase-3 test)"
         default n

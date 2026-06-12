@@ -10,6 +10,7 @@
 #include "freertos/task.h"
 
 #include "esp_log.h"
+#include "sdkconfig.h"
 
 #include "local/canned_audio.h"
 #include "network/wifi.h"
@@ -40,10 +41,11 @@ static atomic_bool s_busy;
 // vom afe_fetch_task (MultiNet-"stop"-Session) und von main.c.
 static atomic_bool s_speaking;
 
-// Antwort vorlesen (Phase 7): TTS-Request, dann blockierende Wiedergabe
-// ueber den Player-Task — "stop" (MultiNet) bricht sie per
-// canned_audio_stop() ab. Ein TTS-Fehler ist nicht fatal: die Antwort
-// steht bereits als Bubble auf dem Display.
+#if CONFIG_TTS_SPEAK_REPLIES
+// Antwort vorlesen (Phase 7): TTS-Request (Retry/Backoff macht tts.c),
+// dann blockierende Wiedergabe ueber den Player-Task — "stop"
+// (MultiNet) bricht sie per canned_audio_stop() ab. Ein TTS-Fehler ist
+// nicht fatal: die Antwort steht bereits als Bubble auf dem Display.
 static void speak_reply(const char *reply)
 {
     const int16_t *pcm;
@@ -51,16 +53,6 @@ static void speak_reply(const char *reply)
     uint32_t rate;
 
     esp_err_t err = tts_synthesize(reply, &pcm, &samples, &rate);
-    if (err == ESP_FAIL) {
-        // Die Preview-TTS wirft sporadisch transiente Fehler (HTTP 500
-        // INTERNAL, finishReason=OTHER — beobachtet 2026-06-12); ein
-        // Sofort-Retry behebt das meist. ESP_ERR_NOT_ALLOWED (429,
-        // Tageslimit) wird NICHT wiederholt; voller Backoff folgt in
-        // Phase 8.
-        ESP_LOGW(TAG, "TTS failed, retrying once");
-        vTaskDelay(pdMS_TO_TICKS(1000));
-        err = tts_synthesize(reply, &pcm, &samples, &rate);
-    }
     if (err != ESP_OK) {
         // ESP_ERR_NOT_ALLOWED = HTTP 429: das Free-Tier-Tageslimit
         // (10 TTS-Requests) ist erschoepft.
@@ -75,6 +67,7 @@ static void speak_reply(const char *reply)
     canned_audio_play_pcm(pcm, samples, rate);
     atomic_store(&s_speaking, false);
 }
+#endif // CONFIG_TTS_SPEAK_REPLIES
 
 static void network_task(void *arg)
 {
@@ -101,7 +94,9 @@ static void network_task(void *arg)
                 chat_history_push(CHAT_ROLE_USER, text);
                 chat_history_push(CHAT_ROLE_MODEL, reply);
                 s_cb(CLOUD_EVT_REPLY, reply);
+#if CONFIG_TTS_SPEAK_REPLIES
                 speak_reply(reply);
+#endif
                 s_cb(CLOUD_EVT_DONE, "");
             } else {
                 s_cb(CLOUD_EVT_ERROR, "Assistant failed");
@@ -120,10 +115,14 @@ esp_err_t cloud_init(cloud_event_cb_t cb)
     if (err != ESP_OK) {
         return err;
     }
+#if CONFIG_TTS_SPEAK_REPLIES
+    // Nur bei aktiviertem TTS — tts_init() allokiert 2,5 MB PSRAM
+    // (Response- + PCM-Buffer).
     err = tts_init();
     if (err != ESP_OK) {
         return err;
     }
+#endif
     s_cb = cb;
     s_queue = xQueueCreate(1, sizeof(cloud_job_t));
     if (!s_queue) {
