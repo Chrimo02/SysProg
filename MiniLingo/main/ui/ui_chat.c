@@ -3,6 +3,14 @@
 #include "ui.h"
 #include "ui_internal.h"
 
+// Custom-Font mit Latin-1-Range (Phase 8): das eingebaute Montserrat 14
+// kann nur ASCII — deutsche Transkripte/Antworten enthalten Umlaute.
+// Generiert per lv_font_conv (Kommandozeile im Dateikopf), zusaetzlich
+// typografische Anfuehrungszeichen/Gedankenstrich/Ellipse, die Gemini
+// gern ausgibt. Nur fuer die Bubble-Labels — Status-Bar und Mic-Button
+// brauchen die FontAwesome-Symbole des Default-Fonts.
+LV_FONT_DECLARE(font_montserrat_14_latin1);
+
 #define BUBBLE_MAX_W      200
 #define BUBBLE_PAD        10
 #define BUBBLE_RADIUS     12
@@ -56,6 +64,7 @@ static void add_bubble(const char *text, uint32_t bg_color, bool right_aligned)
     lv_obj_set_width(label, LV_SIZE_CONTENT);
     lv_obj_set_style_max_width(label, BUBBLE_MAX_W - 2 * BUBBLE_PAD, 0);
     lv_obj_set_style_text_color(label, lv_color_hex(0xF0F0F0), 0);
+    lv_obj_set_style_text_font(label, &font_montserrat_14_latin1, 0);
 
     lv_obj_scroll_to_view(row, LV_ANIM_ON);
 }

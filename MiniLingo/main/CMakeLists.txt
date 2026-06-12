@@ -27,6 +27,7 @@ idf_component_register(
          "ui/ui_status_bar.c"
          "ui/ui_chat.c"
          "ui/ui_mic_button.c"
+         "ui/font_montserrat_14_latin1.c"
     INCLUDE_DIRS ".")
 
 # Canned-TTS-WAVs (scripts/generate_canned_tts.py -> spiffs/) als
