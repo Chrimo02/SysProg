@@ -22,13 +22,48 @@
 | 6 | Gemini Flash Integration | ✅ erledigt | 2026-06-12, User-Test bestanden (Lautsprecher-Test davor: 2 Runden inkl. History-Follow-up) |
 | 7 | Gemini TTS + Wiedergabe | ✅ erledigt | 2026-06-12, E2E vom User bestätigt. **TTS auf User-Wunsch pausiert** (Latenz + Free-Tier-Limit 10 Req./Tag) — Text-Antwort genügt einstweilen, bis eine performantere TTS-Lösung gefunden ist. Details s.u. |
 | 8 | Polish + Robustness | ✅ erledigt | 2026-06-12, User-Test bestanden (Umlaute, Puls/Spinner, Error-Beep). **Offen: WiFi-Drop-Test** (TODO unten — User testet, wenn Router-Zugriff da ist) |
-| 8b | Volume per Touch-Slider + Sprach-Stufen | 🔶 implementiert | 2026-06-12, Sprach-Stufen am Gerät verifiziert (per `say`); User-Test ausstehend (Slider-Bedienung, echte Stimme — bes. "sixty") |
+| 8b | Volume per Touch-Slider + Sprach-Stufen | ✅ erledigt | 2026-06-12, User-Test bestanden (inkl. Slider-Fix + "sixty"-Aliasse, s. Session-Notiz) |
+| 8c | LLM-Wechsel Gemini → Cerebras | 🔶 implementiert | 2026-06-12, gebaut + committet; **wartet auf Cerebras-API-Key vom User** (menuconfig), dann Flash + E2E-Test. Gerät läuft bis dahin mit Gemini-Firmware |
 | 9 (optional) | AEC | ⬜ offen | |
 | 10 | Function-Calling für freie Timer-Werte | ⬜ offen | **Nicht mehr optional** — User-Anforderung 2026-06-11: jede gewünschte Sekunden-/Minutenzahl muss über Gemini-Function-Calls funktionieren (MultiNet kann nur das feste 6er-Set) |
 
 ---
 
 ## Aktueller Stand / Nächster Schritt
+
+**Nachtrag 2026-06-12 (Session 10, Fortsetzung 2): Phase 8c —
+LLM-Wechsel Gemini → Cerebras (User stieß an Gemini-Tageslimits,
+jetzt auch bei Text-Antworten).** Limit-Vergleich (eine
+MiniLingo-Frage ≈ 400-800 Token inkl. System-Prompt, History,
+Antwort):
+
+- Gemini 2.5 Flash Free: 250 Requests/Tag, 10/min
+- Groq Free (Key vorhanden): 100k-200k Token/Tag ≈ 150-500 Fragen —
+  kaum besser als Gemini, deshalb verworfen
+- **Cerebras Free: 1 Mio. Token/Tag ≈ 1.500-2.500 Fragen, 30/min**
+  ← gewählt (User legt Konto an; ~8-10x großzügiger)
+
+Umsetzung: `main/network/llm.c` ersetzt `gemini.c` — OpenAI-
+kompatible Chat-Completions (`api.cerebras.ai/v1/chat/completions`,
+`Authorization: Bearer`), System-Prompt/History/200-Token-Limit
+unverändert übernommen, Retry-Wrapper nach Phase-8-Muster. Neue
+Kconfigs: `CEREBRAS_API_KEY`, `LLM_MODEL` (Default `llama-3.3-70b`;
+Alternativen gpt-oss-120b, qwen-3-32b). Kein thinkingBudget-Workaround
+mehr nötig (Llama ist kein Reasoning-Model). `GEMINI_API_KEY` bleibt
+für die (pausierte) TTS. Cerebras kann Tool-Calling — **Phase 10
+wechselt damit aufs OpenAI-Tool-Format** (statt Gemini-Function-
+Calling wie in Spec Section 12 angedacht).
+
+**Status: gebaut + committet, NICHT geflasht** — ohne Key würden
+freie Fragen am Gerät fehlschlagen; bis dahin bleibt die
+Gemini-Firmware drauf. **Nächster Schritt:** User legt Konto auf
+cloud.cerebras.ai an (kostenlos, keine Kreditkarte), Key per
+`idf.py menuconfig` → MiniLingo Configuration → Cerebras API Key
+eintragen; dann curl-Smoke-Test, Flash, E2E (deutsche Frage +
+History-Follow-up, Latenzvergleich zu Gemini 0,6-1,3 s) und
+Fehlerpfad-Check.
+
+---
 
 **Nachtrag 2026-06-12 (Session 10, Fortsetzung): Phase 8b —
 Lautstärke per Touch-Slider und direkte Sprach-Stufen (User-Wunsch).**
@@ -596,12 +631,20 @@ end-to-end.
   State-Machine aus Spec Section 8 ist weiterhin als atomare Flags in
   `main.c` umgesetzt (Entscheidung aus Phase 5). Kein Locking — alle
   History-Zugriffe laufen im network_task.
+- **LLM ist seit 2026-06-12 Cerebras, nicht mehr Gemini** (Abweichung
+  von Spec Section 9.4): Gemini-Free-Tier (250 Req./Tag, 10/min) war
+  im Alltag zu knapp; Cerebras Free bietet 1 Mio. Token/Tag (~8-10x).
+  `main/network/llm.c`, OpenAI-kompatibles Chat-Format, Modell per
+  `CONFIG_LLM_MODEL` (Default llama-3.3-70b). Phase 10 nutzt deshalb
+  das OpenAI-Tool-Calling-Format. Gemini bleibt nur fuer die
+  (pausierte) TTS, Spec Section 9.5.
 - **Gemini-Thinking abgeschaltet** (`thinkingBudget: 0`, Phase 6,
-  steht nicht in der Spec): gemini-2.5-flash ist ein Thinking-Model
-  mit dynamischem Default — ohne das Abschalten frisst das Denken
-  Latenz und das maxOutputTokens-Budget (leere Antwort mit
-  finishReason=MAX_TOKENS möglich). Konstante in
-  `main/network/gemini.c`.
+  steht nicht in der Spec; **historisch** — seit dem Cerebras-Wechsel
+  ohne Wirkung, llama-3.3-70b ist kein Reasoning-Model):
+  gemini-2.5-flash "denkt" per Default, das kostete Latenz und das
+  maxOutputTokens-Budget (leere Antwort mit finishReason=MAX_TOKENS).
+  Achtung, falls `LLM_MODEL` auf ein Reasoning-Model wie gpt-oss-120b
+  wechselt: Reasoning-Tokens zaehlen gegen max_completion_tokens.
 - **History nur mit vollständigen Paaren**: User- und Model-Turn
   werden erst nach erfolgreichem Gemini-Call gepusht; ein
   fehlgeschlagener Request hinterlässt keinen halben Turn.
