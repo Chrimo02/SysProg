@@ -20,7 +20,7 @@
 | 4 | MultiNet + Lokale Commands | ✅ erledigt | 2026-06-11, User-Test ok bis auf "thirty minutes" (niedrige Prio, s.u.) |
 | 5 | Groq Whisper Integration | ✅ erledigt | 2026-06-12, User-Test bestanden (inkl. Touch-Trigger + Farb-Fix, Transkript-Bubble ok) |
 | 6 | Gemini Flash Integration | ✅ erledigt | 2026-06-12, User-Test bestanden (Lautsprecher-Test davor: 2 Runden inkl. History-Follow-up) |
-| 7 | Gemini TTS + Wiedergabe | 🟡 funktioniert, pausiert | 2026-06-12: E2E vom User bestätigt (gesprochene Antwort kam an). TTS vorerst pausiert: Free-Tier-Limit 10 Req./Tag zu knapp, User sucht performantere Lösung — Text-Antwort genügt einstweilen. Details s.u. |
+| 7 | Gemini TTS + Wiedergabe | ✅ erledigt | 2026-06-12, E2E vom User bestätigt. **TTS auf User-Wunsch pausiert** (Latenz + Free-Tier-Limit 10 Req./Tag) — Text-Antwort genügt einstweilen, bis eine performantere TTS-Lösung gefunden ist. Details s.u. |
 | 8 | Polish + Robustness | ⬜ offen | |
 | 9 (optional) | AEC | ⬜ offen | |
 | 10 | Function-Calling für freie Timer-Werte | ⬜ offen | **Nicht mehr optional** — User-Anforderung 2026-06-11: jede gewünschte Sekunden-/Minutenzahl muss über Gemini-Function-Calls funktionieren (MultiNet kann nur das feste 6er-Set) |
@@ -68,10 +68,18 @@ genügt die Text-Antwort auf dem Display. Bei erschöpftem Limit zeigt
 jede Antwort die Bubble "Cloud: TTS daily limit" — falls das nervt,
 wäre ein Kconfig-Schalter zum TTS-Deaktivieren der nächste Handgriff.
 
-**Nächster Schritt:** Phase 8 (Polish + Robustness) — oder, falls
-der "stop"-Fix gegen echte Wiedergabe noch verifiziert werden soll:
-ein TTS-Budget von 2 Requests reicht (1x durchspielen lassen, 1x mit
-"stop" abbrechen).
+**Phase 7 damit abgeschlossen (User-Bestätigung 2026-06-12).**
+
+**Nächster Schritt:** Phase 8 (Polish + Robustness) oder Phase 10
+(Function-Calling für freie Timer-Werte, fest eingeplant). Zwei
+offene Punkte für später:
+- Solange ein gültiger Key mit Rest-Quota im sdkconfig steckt,
+  spricht das Gerät automatisch wieder — falls die Antworten bewusst
+  stumm bleiben sollen (User-Wunsch "nur Text"), fehlt noch ein
+  Kconfig-Schalter zum TTS-Deaktivieren (5-Minuten-Änderung).
+- Der "stop"-Fix (prob >= 0.30 während SPEAKING) ist gegen echte
+  Wiedergabe noch unverifiziert; kostet 2 TTS-Requests, wenn TTS
+  wieder aktiv wird.
 
 ---
 
