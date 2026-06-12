@@ -21,7 +21,7 @@
 | 5 | Groq Whisper Integration | ✅ erledigt | 2026-06-12, User-Test bestanden (inkl. Touch-Trigger + Farb-Fix, Transkript-Bubble ok) |
 | 6 | Gemini Flash Integration | ✅ erledigt | 2026-06-12, User-Test bestanden (Lautsprecher-Test davor: 2 Runden inkl. History-Follow-up) |
 | 7 | Gemini TTS + Wiedergabe | ✅ erledigt | 2026-06-12, E2E vom User bestätigt. **TTS auf User-Wunsch pausiert** (Latenz + Free-Tier-Limit 10 Req./Tag) — Text-Antwort genügt einstweilen, bis eine performantere TTS-Lösung gefunden ist. Details s.u. |
-| 8 | Polish + Robustness | 🔶 implementiert | 2026-06-12, geflasht + am Gerät getestet (Stille-Guard, Umlaute-Pipeline); User-Test ausstehend (Animationen, Font-Rendering, Error-Beep, 20-Interaktionen-Acceptance) |
+| 8 | Polish + Robustness | ✅ erledigt | 2026-06-12, User-Test bestanden (Umlaute, Puls/Spinner, Error-Beep). **Offen: WiFi-Drop-Test** (TODO unten — User testet, wenn Router-Zugriff da ist) |
 | 9 (optional) | AEC | ⬜ offen | |
 | 10 | Function-Calling für freie Timer-Werte | ⬜ offen | **Nicht mehr optional** — User-Anforderung 2026-06-11: jede gewünschte Sekunden-/Minutenzahl muss über Gemini-Function-Calls funktionieren (MultiNet kann nur das feste 6er-Set) |
 
@@ -85,9 +85,23 @@ WiFi-Drop). Achtung: TTS ist jetzt per Kconfig aus — zum Reaktivieren
 `TTS_SPEAK_REPLIES` in menuconfig setzen (der "stop"-während-
 Wiedergabe-Test aus Session 9 ist weiterhin offen).
 
-**Nächster Schritt:** User-Test Phase 8, danach Phase 10
-(Function-Calling für freie Timer-Werte, fest eingeplant). Phase 9
-(AEC) bleibt optional.
+**User-Test 2026-06-12 bestanden:** Umlaut-Rendering, Puls/Spinner-
+Optik und Error-Beep alle ok. Phase 8 damit abgeschlossen bis auf:
+
+**TODO WiFi-Drop-Test (User macht das selbst, sobald er am Router
+kann):** Router/2,4-GHz-Netz kurz wegnehmen, erwartet: Status-Bar
+zeigt getrennt, freie Frage → "Cloud: No WiFi connection" + Beep
+(kein Hänger/Reset), lokale Commands laufen weiter, nach
+WLAN-Rückkehr verbindet das Gerät von selbst (Reconnect-Timer 5 s)
+und Cloud-Fragen gehen wieder.
+
+**Beobachtung (User, 2026-06-12): Display flackert leicht, während
+der Lautsprecher spielt.** Verdacht: Versorgungs-Einbruch (Amp-
+Spitzenströme drücken die Rail → Backlight moduliert), nicht
+Software — Diagnose-Hinweise siehe Hardware-Abschnitt/Session-Notiz.
+
+**Nächster Schritt:** Phase 10 (Function-Calling für freie
+Timer-Werte, fest eingeplant). Phase 9 (AEC) bleibt optional.
 
 ---
 
