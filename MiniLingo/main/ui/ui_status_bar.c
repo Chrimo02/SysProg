@@ -50,6 +50,10 @@ static void volume_label_click_cb(lv_event_t *e)
     if (lv_obj_has_flag(s_volume_panel, LV_OBJ_FLAG_HIDDEN)) {
         lv_slider_set_value(s_volume_slider, s_volume_percent,
                             LV_ANIM_OFF);
+        // Das Panel wird VOR dem Chat-Container erstellt und laege
+        // sonst unter ihm — der Chat verdeckt es dann nicht nur,
+        // sondern faengt auch die Touch-Events ab.
+        lv_obj_move_foreground(s_volume_panel);
         lv_obj_remove_flag(s_volume_panel, LV_OBJ_FLAG_HIDDEN);
         volume_hide_timer_restart();
     } else {
@@ -125,6 +129,9 @@ void ui_status_bar_create(lv_obj_t *parent)
     lv_slider_set_range(s_volume_slider, 0, 100);
     lv_obj_set_size(s_volume_slider, lv_pct(100), 8);
     lv_obj_center(s_volume_slider);
+    // Die 8-px-Track-Hoehe ist fuer den resistiven Touch zu schmal —
+    // Klickflaeche nach oben/unten aufweiten.
+    lv_obj_set_ext_click_area(s_volume_slider, 14);
     lv_obj_add_event_cb(s_volume_slider, volume_slider_cb,
                         LV_EVENT_ALL, NULL);
 

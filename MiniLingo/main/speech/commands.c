@@ -100,7 +100,13 @@ static const struct {
     { CMD_VOLUME_40,    "volume forty percent",   "VnLYoM FeRTm PkSfNT" },
     // "sixty" als ein Token (SgKSTm) matcht nie — vermutlich im FST
     // defekt wie MgNcTS; gesplittet ("six tea" = SgKS Tm) geht es.
+    // Dazu Aussprache-Aliasse (User-Test 2026-06-12: echte Stimme
+    // matchte nie, say-Stimmen schon): stimmhaftes S wie im Deutschen
+    // ("zixty"), offenes/langes i ("sexty"/"seexty").
     { CMD_VOLUME_60,    "volume sixty percent",   "VnLYoM SgKS Tm PkSfNT" },
+    { CMD_VOLUME_60,    "volume zixty percent",   "VnLYoM ZgKS Tm PkSfNT" },
+    { CMD_VOLUME_60,    "volume sexty percent",   "VnLYoM SfKS Tm PkSfNT" },
+    { CMD_VOLUME_60,    "volume seexty percent",  "VnLYoM SmKS Tm PkSfNT" },
     { CMD_VOLUME_80,    "volume eighty percent",  "VnLYoM dTm PkSfNT" },
     { CMD_VOLUME_100,   "volume one hundred percent",
                                                   "VnLYoM WcN hcNDRcD PkSfNT" },

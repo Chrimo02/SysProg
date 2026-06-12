@@ -65,11 +65,23 @@ Host-G2P `managed_components/espressif__esp-sr/tool/multinet_g2p.py`
 die Lautstärke (twenty 0.06-0.13, forty 0.17, sixty 0.06-0.12,
 eighty 0.26, one hundred 0.24); Regression "volume up" 0.92 ok;
 freier deutscher Satz → kein False-Positive → Whisper wortgenau.
-**Vom User zu testen:** Slider-Bedienung am Touch, die 5 Stufen mit
-echter Stimme — **"sixty" ist die schwächste Phrase** (wie "thirty
-minutes"); wenn sie mit echter Stimme nicht zuverlässig greift:
-Decoder-Rohtext-Log wieder aktivieren (detect_chunk in commands.c,
-Session-10-Diff) und Phonem-Alias nachziehen.
+
+**Nachbesserung nach User-Test (gleiche Session):** Der erste
+User-Test ergab drei Probleme, alle behoben:
+
+1. *Slider von Chat-Bubbles verdeckt + nicht bedienbar*: das Panel
+   wird vor dem Chat-Container erstellt und lag in der Z-Reihenfolge
+   unter ihm — der Chat verdeckte es UND fing die Touch-Events ab.
+   Fix: `lv_obj_move_foreground()` beim Öffnen; zusätzlich
+   Ext-Click-Area 14 px (8-px-Track ist für resistiven Touch zu
+   schmal). **Slider-Bedienung vom User erneut zu testen.**
+2. *"sixty" matchte mit echter Stimme nie* (say-Stimmen ok):
+   Aussprache-Aliasse ergänzt — stimmhaftes S wie im Deutschen
+   ("zixty" `ZgKS`), offenes/langes i ("sexty" `SfKS` /
+   "seexty" `SmKS`). Damit matchen alle 4 Test-Stimmen (Anna/
+   Samantha/Daniel/Default) mit 0.13-0.34 statt vorher ~50 %
+   Ausfällen; twenty/eighty-Gegenprobe ohne Kreuz-Match.
+   **Mit echter Stimme erneut zu testen.**
 
 ---
 
