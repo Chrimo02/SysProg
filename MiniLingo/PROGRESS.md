@@ -23,7 +23,7 @@
 | 7 | Gemini TTS + Wiedergabe | ✅ erledigt | 2026-06-12, E2E vom User bestätigt. **TTS auf User-Wunsch pausiert** (Latenz + Free-Tier-Limit 10 Req./Tag) — Text-Antwort genügt einstweilen, bis eine performantere TTS-Lösung gefunden ist. Details s.u. |
 | 8 | Polish + Robustness | ✅ erledigt | 2026-06-12, User-Test bestanden (Umlaute, Puls/Spinner, Error-Beep). **Offen: WiFi-Drop-Test** (TODO unten — User testet, wenn Router-Zugriff da ist) |
 | 8b | Volume per Touch-Slider + Sprach-Stufen | ✅ erledigt | 2026-06-12, User-Test bestanden (inkl. Slider-Fix + "sixty"-Aliasse, s. Session-Notiz) |
-| 8c | LLM-Wechsel Gemini → Cerebras | 🔶 implementiert | 2026-06-12, gebaut + committet; **wartet auf Cerebras-API-Key vom User** (menuconfig), dann Flash + E2E-Test. Gerät läuft bis dahin mit Gemini-Firmware |
+| 8c | LLM-Wechsel Gemini → Cerebras | ✅ erledigt | 2026-06-12, E2E am Gerät verifiziert (inkl. History-Follow-up); Antwortzeit ~500 ms (Gemini: 600-1300 ms). Modell: gpt-oss-120b |
 | 9 (optional) | AEC | ⬜ offen | |
 | 10 | Function-Calling für freie Timer-Werte | ⬜ offen | **Nicht mehr optional** — User-Anforderung 2026-06-11: jede gewünschte Sekunden-/Minutenzahl muss über Gemini-Function-Calls funktionieren (MultiNet kann nur das feste 6er-Set) |
 
@@ -45,23 +45,34 @@ Antwort):
 
 Umsetzung: `main/network/llm.c` ersetzt `gemini.c` — OpenAI-
 kompatible Chat-Completions (`api.cerebras.ai/v1/chat/completions`,
-`Authorization: Bearer`), System-Prompt/History/200-Token-Limit
-unverändert übernommen, Retry-Wrapper nach Phase-8-Muster. Neue
-Kconfigs: `CEREBRAS_API_KEY`, `LLM_MODEL` (Default `llama-3.3-70b`;
-Alternativen gpt-oss-120b, qwen-3-32b). Kein thinkingBudget-Workaround
-mehr nötig (Llama ist kein Reasoning-Model). `GEMINI_API_KEY` bleibt
-für die (pausierte) TTS. Cerebras kann Tool-Calling — **Phase 10
-wechselt damit aufs OpenAI-Tool-Format** (statt Gemini-Function-
-Calling wie in Spec Section 12 angedacht).
+`Authorization: Bearer`), System-Prompt/History unverändert
+übernommen, Retry-Wrapper nach Phase-8-Muster. Neue Kconfigs:
+`CEREBRAS_API_KEY`, `LLM_MODEL`. `GEMINI_API_KEY` bleibt für die
+(pausierte) TTS. Cerebras kann Tool-Calling — **Phase 10 wechselt
+damit aufs OpenAI-Tool-Format** (statt Gemini-Function-Calling wie
+in Spec Section 12 angedacht).
 
-**Status: gebaut + committet, NICHT geflasht** — ohne Key würden
-freie Fragen am Gerät fehlschlagen; bis dahin bleibt die
-Gemini-Firmware drauf. **Nächster Schritt:** User legt Konto auf
-cloud.cerebras.ai an (kostenlos, keine Kreditkarte), Key per
-`idf.py menuconfig` → MiniLingo Configuration → Cerebras API Key
-eintragen; dann curl-Smoke-Test, Flash, E2E (deutsche Frage +
-History-Follow-up, Latenzvergleich zu Gemini 0,6-1,3 s) und
-Fehlerpfad-Check.
+**Befund beim Key-Test:** Das geplante Modell `llama-3.3-70b` gibt
+es im Cerebras-Free-Tier nicht mehr — `/v1/models` liefert (Stand
+2026-06-12) nur **gpt-oss-120b** und **zai-glm-4.7**. Default ist
+jetzt `gpt-oss-120b` mit `reasoning_effort=low` (gemessen: ~11
+Reasoning-Tokens, 24 ms Serverzeit) und `max_completion_tokens` 300
+statt 200, weil Reasoning-Tokens gegen das Budget zählen (gleiche
+Falle wie Gemini-Thinking in Phase 6). zai-glm-4.7 ignoriert
+reasoning_effort weitgehend (Hinweis in der Kconfig-Help).
+
+**E2E am Gerät verifiziert (2026-06-12):** "Wie heißt die Hauptstadt
+von Australien?" → "Die Hauptstadt von Australien heißt Canberra."
+(506 ms); Follow-up "Und wie viele Einwohner hat diese Stadt?" →
+"Canberra hat etwa 460 000 Einwohner (Stand 2023)." (498 ms) — der
+History-Kontextbezug löst korrekt auf, Antwortzeit ~500 ms statt
+600-1300 ms bei Gemini. Fehlerpfad (ungültiger Key → 401 →
+"Assistant failed") nicht separat geflasht-getestet — derselbe
+CLOUD_EVT_ERROR-Pfad ist seit Phase 8 mehrfach verifiziert (No WiFi,
+TTS-Limit, Stille-Guard).
+
+**Nächster Schritt:** Phase 10 (Function-Calling, jetzt im
+OpenAI-Tool-Format gegen Cerebras). Phase 9 (AEC) optional.
 
 ---
 

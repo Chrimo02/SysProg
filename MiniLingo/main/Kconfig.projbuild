@@ -31,11 +31,14 @@ menu "MiniLingo Configuration"
 
     config LLM_MODEL
         string "Cerebras LLM model"
-        default "llama-3.3-70b"
+        default "gpt-oss-120b"
         help
             Modellname fuer api.cerebras.ai/v1/chat/completions.
-            Alternativen im Free Tier: gpt-oss-120b (staerker,
-            Reasoning-Model = mehr Latenz/Token), qwen-3-32b.
+            Verfuegbar im Free Tier (Stand 2026-06-12, per
+            /v1/models geprueft): gpt-oss-120b, zai-glm-4.7.
+            Achtung bei zai-glm-4.7: ignoriert reasoning_effort
+            weitgehend -> laengere Antwortzeiten, Reasoning frisst
+            vom max_completion_tokens-Budget.
 
     config GEMINI_API_KEY
         string "Gemini API Key (nur noch TTS, Phase 7)"

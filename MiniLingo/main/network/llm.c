@@ -28,8 +28,12 @@ static const char *TAG = "llm";
     "Du bist ein kompakter Sprachassistent namens MiniLingo. Halte " \
     "Antworten unter 3 Saetzen und ohne Markdown-Formatierung."
 
-// Hard-Limit ~10 s TTS-Audio (Spec Section 9.4).
-#define MAX_COMPLETION_TOKENS 200
+// Antwortlaenge steuert primaer der System-Prompt (<3 Saetze);
+// das Token-Limit ist nur die Notbremse (~10 s TTS-Audio, Spec
+// Section 9.4). 300 statt 200, weil gpt-oss-120b ein Reasoning-Model
+// ist und die Reasoning-Tokens GEGEN dieses Budget zaehlen (mit
+// reasoning_effort=low gemessen ~11 Tokens, aber mit Luft).
+#define MAX_COMPLETION_TOKENS 300
 #define TEMPERATURE           0.7
 
 // Antwort-JSON bleibt klein (200 Output-Tokens + Usage-Metadaten).
@@ -68,6 +72,11 @@ static char *build_request(const char *user_text)
     cJSON_AddNumberToObject(root, "max_completion_tokens",
                             MAX_COMPLETION_TOKENS);
     cJSON_AddNumberToObject(root, "temperature", TEMPERATURE);
+    // gpt-oss-120b: Reasoning kurz halten (Latenz + Token-Budget;
+    // verifiziert per curl 2026-06-12: ~11 Reasoning-Tokens, Antwort
+    // in 24 ms Serverzeit). zai-glm-4.7 akzeptiert den Parameter,
+    // ignoriert ihn aber weitgehend.
+    cJSON_AddStringToObject(root, "reasoning_effort", "low");
 
     char *body = cJSON_PrintUnformatted(root);
     cJSON_Delete(root);
