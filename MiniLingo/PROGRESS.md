@@ -22,12 +22,56 @@
 | 6 | Gemini Flash Integration | ✅ erledigt | 2026-06-12, User-Test bestanden (Lautsprecher-Test davor: 2 Runden inkl. History-Follow-up) |
 | 7 | Gemini TTS + Wiedergabe | ✅ erledigt | 2026-06-12, E2E vom User bestätigt. **TTS auf User-Wunsch pausiert** (Latenz + Free-Tier-Limit 10 Req./Tag) — Text-Antwort genügt einstweilen, bis eine performantere TTS-Lösung gefunden ist. Details s.u. |
 | 8 | Polish + Robustness | ✅ erledigt | 2026-06-12, User-Test bestanden (Umlaute, Puls/Spinner, Error-Beep). **Offen: WiFi-Drop-Test** (TODO unten — User testet, wenn Router-Zugriff da ist) |
+| 8b | Volume per Touch-Slider + Sprach-Stufen | 🔶 implementiert | 2026-06-12, Sprach-Stufen am Gerät verifiziert (per `say`); User-Test ausstehend (Slider-Bedienung, echte Stimme — bes. "sixty") |
 | 9 (optional) | AEC | ⬜ offen | |
 | 10 | Function-Calling für freie Timer-Werte | ⬜ offen | **Nicht mehr optional** — User-Anforderung 2026-06-11: jede gewünschte Sekunden-/Minutenzahl muss über Gemini-Function-Calls funktionieren (MultiNet kann nur das feste 6er-Set) |
 
 ---
 
 ## Aktueller Stand / Nächster Schritt
+
+**Nachtrag 2026-06-12 (Session 10, Fortsetzung): Phase 8b —
+Lautstärke per Touch-Slider und direkte Sprach-Stufen (User-Wunsch).**
+
+- **Touch-Slider**: Klick auf die Volume-Anzeige in der Status-Bar
+  öffnet einen Slider (0-100 %) unter der Bar; Auto-Hide nach 3 s
+  ohne Interaktion, erneuter Klick schließt sofort. Callback-Pfad wie
+  beim Mic-Button (`ui_status_bar_set_volume_changed_cb` → `main.c`
+  → `volume_set`, alles im LVGL-Task; der Gain ist atomar).
+- **Sprach-Stufen**: 5 neue MultiNet-Commands `CMD_VOLUME_20..100`
+  ("volume twenty/forty/sixty/eighty/one hundred percent") — die
+  Lautstärke hat nur die 20-%-Stufen von `volume.c`, deshalb reicht
+  das feste Phrasenset (kein Cloud-Function-Call nötig; beliebige
+  Werte kommen mit Phase 10 gratis dazu).
+
+**Zwei mn7_en-Befunde dabei** (gleiche Werkzeugkiste wie Session 6,
+Host-G2P `managed_components/espressif__esp-sr/tool/multinet_g2p.py`
+— braucht venv mit g2p_en+pandas plus NLTK-Paket
+`averaged_perceptron_tagger_eng`):
+
+1. *"sixty" matchte mit On-Device-G2P nie* → explizite Phoneme für
+   alle 5 Phrasen (`VnLYoM ... PkSfNT`); "sixty" zusätzlich als
+   gesplittete Tokens `SgKS Tm` statt `SgKSTm` (ein Token bleibt tot,
+   wie `MgNcTS` in Session 6).
+2. *Globaler Threshold 0.05 → 0.03*: "sixty" matchte nur ~50 % der
+   `say`-Versuche (Probs 0.06-0.12, Rest knapp unter 0.05 — die
+   "twenty"-Hypothese konkurriert im Decoder, per Decoder-Rohtext-Log
+   verifiziert). Bei 0.03 abgesichert durch die per-Command-Mindest-
+   Probs: Regressionstest "Wie wird das Wetter morgen in Berlin?"
+   feuerte einmal "volume down" mit 0.04 → von min_prob (0.25)
+   verworfen, Satz ging normal in die Cloud.
+
+**Verifiziert am Gerät (say-Test):** alle 5 Stufen matchen und setzen
+die Lautstärke (twenty 0.06-0.13, forty 0.17, sixty 0.06-0.12,
+eighty 0.26, one hundred 0.24); Regression "volume up" 0.92 ok;
+freier deutscher Satz → kein False-Positive → Whisper wortgenau.
+**Vom User zu testen:** Slider-Bedienung am Touch, die 5 Stufen mit
+echter Stimme — **"sixty" ist die schwächste Phrase** (wie "thirty
+minutes"); wenn sie mit echter Stimme nicht zuverlässig greift:
+Decoder-Rohtext-Log wieder aktivieren (detect_chunk in commands.c,
+Session-10-Diff) und Phonem-Alias nachziehen.
+
+---
 
 **Stand 2026-06-12 (Session 10): Phase 8 implementiert, geflasht und
 am Gerät getestet (per `say`-Lautsprecher-Test).** Umfang:
@@ -563,15 +607,26 @@ end-to-end.
   die Wiedergabe, nicht den Küchen-Timer (anders als im IDLE, wo
   "stop" als "stop timer" gilt).
 - **Per-Command-Mindest-Prob statt globalem Threshold** (Session 9):
-  der globale MultiNet-Threshold bleibt 0.05 (Timer-Phrasen brauchen
-  das), aber die Kurz-Commands (stop/mute/unmute/volume up/down)
+  der globale MultiNet-Threshold ist bewusst niedrig (Timer-/Volume-
+  Phrasen brauchen das; seit Session 10 **0.03**, davor 0.05), aber
+  die Kurz-Commands (stop/mute/unmute/volume up/down)
   verlangen prob >= 0.25 (`min_prob()` in `commands.c`); "stop"
   während SPEAKING >= 0.30 (main.c). Ein verworfener Match lässt die
   Session weiterlauschen statt sie zu beenden — deutsche Sätze gehen
   so trotzdem in die Cloud. Gemessen: echte Kurz-Commands 0.84-0.92,
-  False-Positives 0.05-0.20. (Das per-Phrase-`threshold`-Feld von
+  False-Positives 0.04-0.20. (Das per-Phrase-`threshold`-Feld von
   esp-sr wurde bewusst nicht genutzt: undokumentiert, ob mn7_en es
   respektiert, und es könnte die Session nicht fortsetzen.)
+- **Volume-Stufen als lokale Commands** (Phase 8b, nicht in Spec
+  Section 7): `CMD_VOLUME_20..100` mit expliziten Host-G2P-Phonemen
+  (multinet_g2p.py) — die On-Device-G2P versagt bei "sixty"; das
+  Token `SgKSTm` ist zudem im FST tot und als `SgKS Tm` gesplittet
+  registriert (gleiche Fehlerklasse wie `MgNcTS`/"minutes").
+  Beliebige Prozentwerte ("volume 35 percent") kommen erst mit
+  Phase 10 (Function-Calling).
+- **Touch-Volume-Slider in der Status-Bar** (Phase 8b): Klick auf
+  die Volume-Anzeige; Panel überlagert den Chat, Auto-Hide 3 s.
+  `volume_set()` ist atomar und damit auch aus dem LVGL-Task sicher.
 - **Gemini-TTS-Free-Tier: 10 Requests/Tag** (verifiziert 2026-06-12,
   Quota `GenerateRequestsPerDayPerProjectPerModel-FreeTier`), nicht
   ~15 wie zuvor angenommen. HTTP 429 → eigene UI-Meldung
