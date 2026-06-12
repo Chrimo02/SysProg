@@ -23,6 +23,13 @@ typedef enum {
     CMD_VOLUME_DOWN = 12, // "volume down"
     CMD_MUTE = 13,        // "mute"
     CMD_UNMUTE = 14,      // "unmute"
+    // Phase 8b (User-Wunsch, nicht in Spec Section 7): direkte
+    // Volume-Stufen — die 20-%-Schritte von volume.c als Phrasen.
+    CMD_VOLUME_20 = 15,   // "volume twenty percent"
+    CMD_VOLUME_40 = 16,   // "volume forty percent"
+    CMD_VOLUME_60 = 17,   // "volume sixty percent"
+    CMD_VOLUME_80 = 18,   // "volume eighty percent"
+    CMD_VOLUME_100 = 19,  // "volume one hundred percent"
 } command_id_t;
 
 // Match-Callback. Laeuft im afe_fetch_task (Core 1) — keine LVGL-Calls,
@@ -38,7 +45,8 @@ typedef void (*commands_match_cb_t)(command_id_t command_id,
 typedef void (*commands_timeout_cb_t)(void);
 
 // Laedt MultiNet7-EN aus der Model-Partition und registriert die
-// 14 Commands. models kommt von afe_pipeline_get_models().
+// Commands (Tabelle in commands.c). models kommt von
+// afe_pipeline_get_models().
 esp_err_t commands_init(srmodel_list_t *models, commands_match_cb_t cb,
                         commands_timeout_cb_t timeout_cb);
 

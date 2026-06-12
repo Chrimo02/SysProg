@@ -30,6 +30,13 @@ void ui_status_bar_set_state_text(const char *text);
 void ui_status_bar_set_wifi_connected(bool connected);
 void ui_status_bar_set_volume(int percent);
 
+// Touch-Volume (Phase 8b): Klick auf die Volume-Anzeige oeffnet einen
+// Slider; jede Aenderung ruft den Callback (LVGL-Task-Kontext, wie
+// der Mic-Button-Klick). Der Aufrufer setzt den neuen Wert per
+// volume_set() und meldet ihn mit ui_status_bar_set_volume() zurueck.
+typedef void (*ui_volume_changed_cb_t)(int percent);
+void ui_status_bar_set_volume_changed_cb(ui_volume_changed_cb_t cb);
+
 // Mic-Button (ui_mic_button.c)
 void ui_mic_button_set_state(ui_mic_state_t state);
 void ui_mic_button_set_click_cb(ui_mic_click_cb_t cb);

@@ -1,4 +1,5 @@
-// MultiNet7-EN + die 14 lokalen Commands (Spec Section 7).
+// MultiNet7-EN + die lokalen Commands (Spec Section 7 plus
+// Volume-Stufen aus Phase 8b).
 // Das Model liegt seit Phase 2 in der model-Partition; hier wird es
 // geladen und vom afe_fetch_task parallel zum Recording gefuettert
 // (Spec "Audio-Fetch-Task"-Geruest).
@@ -31,10 +32,15 @@ static const char *TAG = "commands";
 
 // Die Timer-Phrasen liegen acoustisch nah beieinander und matchen mit
 // niedrigen Wahrscheinlichkeiten (0.05-0.15); der Default-Threshold
-// laesst sie durchfallen. 0.05 ist empirisch das Minimum, bei dem alle
-// Commands ausloesen — gegen False-Positives schuetzt, dass MultiNet
-// nur im Wake-Word-Fenster gefuettert wird.
-#define MN_DET_THRESHOLD 0.05f
+// laesst sie durchfallen. Phase 8b: von 0.05 auf 0.03 gesenkt, weil
+// "volume sixty percent" bei 0.05 nur ~50% der Versuche schaffte
+// (Matches bei 0.06-0.08, Rest knapp drunter — die "twenty"-Hypothese
+// konkurriert im Decoder). Gegen False-Positives schuetzen die
+// per-Command-Mindest-Probs (min_prob, Kurz-Commands 0.25) und dass
+// MultiNet nur im Wake-Word-Fenster gefuettert wird; lange Phrasen
+// brauchen ohnehin den kompletten Phonem-Pfad. Bei 0.01 gab es in
+// Session 6 False-Positives — nicht weiter senken.
+#define MN_DET_THRESHOLD 0.03f
 
 // Per-Command-Mindestwahrscheinlichkeit oberhalb des globalen
 // Thresholds (User-Report 2026-06-12): die kurzen Commands matchen
@@ -86,6 +92,18 @@ static const struct {
     { CMD_VOLUME_DOWN,  "volume down",               NULL },
     { CMD_MUTE,         "mute",                      NULL },
     { CMD_UNMUTE,       "unmute",                    NULL },
+    // Phase 8b: direkte Volume-Stufen (20-%-Schritte von volume.c).
+    // Explizite Phoneme vom Host-G2P (multinet_g2p.py, wie bei den
+    // Timer-Phrasen): mit On-Device-G2P matchte "volume sixty percent"
+    // nie — gleiche Fehlerklasse wie "minute"/"MgNoT" (Session 6).
+    { CMD_VOLUME_20,    "volume twenty percent",  "VnLYoM TWfNTm PkSfNT" },
+    { CMD_VOLUME_40,    "volume forty percent",   "VnLYoM FeRTm PkSfNT" },
+    // "sixty" als ein Token (SgKSTm) matcht nie — vermutlich im FST
+    // defekt wie MgNcTS; gesplittet ("six tea" = SgKS Tm) geht es.
+    { CMD_VOLUME_60,    "volume sixty percent",   "VnLYoM SgKS Tm PkSfNT" },
+    { CMD_VOLUME_80,    "volume eighty percent",  "VnLYoM dTm PkSfNT" },
+    { CMD_VOLUME_100,   "volume one hundred percent",
+                                                  "VnLYoM WcN hcNDRcD PkSfNT" },
 };
 
 static const esp_mn_iface_t *s_multinet;

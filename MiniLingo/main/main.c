@@ -113,6 +113,15 @@ static void lvgl_task(void *arg)
     }
 }
 
+// Laeuft im LVGL-Task-Kontext (Slider-Event, Phase 8b). volume_set ist
+// atomar und damit aus diesem Task sicher; die Anzeige wird direkt
+// aktualisiert (gleicher Task wie die UI).
+static void on_volume_slider_changed(int percent)
+{
+    volume_set(percent);
+    ui_status_bar_set_volume(percent);
+}
+
 static void on_mic_button_clicked(void)
 {
     // Laeuft im LVGL-Task-Kontext (Klick-Event). Startet eine
@@ -291,6 +300,16 @@ static void on_local_command(command_id_t id, const char *phrase,
         arg = volume_get();
         canned_audio_play(CANNED_VOLUME_CHANGED);
         break;
+    case CMD_VOLUME_20:
+    case CMD_VOLUME_40:
+    case CMD_VOLUME_60:
+    case CMD_VOLUME_80:
+    case CMD_VOLUME_100:
+        // Phase 8b: direkte Stufen, IDs liegen fortlaufend ab 20 %.
+        volume_set((id - CMD_VOLUME_20 + 1) * VOLUME_STEP);
+        arg = volume_get();
+        canned_audio_play(CANNED_VOLUME_CHANGED);
+        break;
     case CMD_MUTE:
         volume_mute();
         canned_audio_play(CANNED_MUTED);  // bei Gain 0 bewusst stumm
@@ -333,6 +352,11 @@ static void format_command_bubble(command_id_t id, int arg, char *text,
         break;
     case CMD_VOLUME_UP:
     case CMD_VOLUME_DOWN:
+    case CMD_VOLUME_20:
+    case CMD_VOLUME_40:
+    case CMD_VOLUME_60:
+    case CMD_VOLUME_80:
+    case CMD_VOLUME_100:
     case CMD_UNMUTE:      snprintf(text, len, "Volume: %d%%", arg); break;
     case CMD_MUTE:        snprintf(text, len, "Muted"); break;
     default:              snprintf(text, len, "Command %d", (int)id); break;
@@ -477,6 +501,7 @@ void app_main(void)
 
     ui_init();
     ui_mic_button_set_click_cb(on_mic_button_clicked);
+    ui_status_bar_set_volume_changed_cb(on_volume_slider_changed);
     ui_status_bar_set_state_text(IDLE_STATE_TEXT);
     ui_status_bar_set_wifi_connected(false);
     lv_timer_create(app_event_timer_cb, 50, NULL);
