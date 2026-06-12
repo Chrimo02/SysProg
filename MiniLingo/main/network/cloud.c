@@ -51,6 +51,16 @@ static void speak_reply(const char *reply)
     uint32_t rate;
 
     esp_err_t err = tts_synthesize(reply, &pcm, &samples, &rate);
+    if (err == ESP_FAIL) {
+        // Die Preview-TTS wirft sporadisch transiente Fehler (HTTP 500
+        // INTERNAL, finishReason=OTHER — beobachtet 2026-06-12); ein
+        // Sofort-Retry behebt das meist. ESP_ERR_NOT_ALLOWED (429,
+        // Tageslimit) wird NICHT wiederholt; voller Backoff folgt in
+        // Phase 8.
+        ESP_LOGW(TAG, "TTS failed, retrying once");
+        vTaskDelay(pdMS_TO_TICKS(1000));
+        err = tts_synthesize(reply, &pcm, &samples, &rate);
+    }
     if (err != ESP_OK) {
         // ESP_ERR_NOT_ALLOWED = HTTP 429: das Free-Tier-Tageslimit
         // (10 TTS-Requests) ist erschoepft.

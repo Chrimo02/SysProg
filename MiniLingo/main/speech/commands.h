@@ -27,8 +27,11 @@ typedef enum {
 
 // Match-Callback. Laeuft im afe_fetch_task (Core 1) — keine LVGL-Calls,
 // nur Handler/Flags/Queues (gleiche Regel wie recorder_done_cb_t).
+// prob = MultiNet-Wahrscheinlichkeit des Matches; der per-Command-
+// Mindestwert ist da schon geprueft, prob dient zusaetzlicher Policy
+// (z.B. strengeres "stop" waehrend der TTS-Wiedergabe in main.c).
 typedef void (*commands_match_cb_t)(command_id_t command_id,
-                                    const char *phrase);
+                                    const char *phrase, float prob);
 
 // MultiNet-Timeout = kein lokaler Command -> die Aufnahme ist ein
 // Cloud-Query (Phase 5). Gleicher Kontext wie der Match-Callback.

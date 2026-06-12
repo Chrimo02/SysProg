@@ -190,14 +190,20 @@ static void on_timer_done(void)
 // afe_fetch_task: Aufnahme verwerfen (war ein lokaler Command, kein
 // Cloud-Query), Handler ausfuehren, Canned-Response abspielen, Event
 // fuer die UI setzen.
-static void on_local_command(command_id_t id, const char *phrase)
+static void on_local_command(command_id_t id, const char *phrase,
+                             float prob)
 {
     // Waehrend der TTS-Wiedergabe (Phase 7) laeuft MultiNet nur fuer
     // "stop" — alle anderen Matches sind dann mit hoher
     // Wahrscheinlichkeit False-Positives aus dem eigenen
-    // Lautsprecher-Signal (Threshold 0.05, bekannt empfindlich).
-    if (cloud_is_speaking() && id != CMD_STOP) {
-        ESP_LOGW(TAG, "ignoring \"%s\" during TTS playback", phrase);
+    // Lautsprecher-Signal. Fuer "stop" selbst gilt dabei eine
+    // strengere Schwelle als der per-Command-Mindestwert in
+    // commands.c: die Wiedergabe (deutsche Sprache, Zimmerlautstaerke)
+    // hat im User-Test 2026-06-12 ein "stop" getriggert. Tuning-Punkt:
+    // Prob eines echten "stop" gegen die Wiedergabe im Log pruefen.
+    if (cloud_is_speaking() && (id != CMD_STOP || prob < 0.30f)) {
+        ESP_LOGW(TAG, "ignoring \"%s\" (prob %.2f) during TTS playback",
+                 phrase, prob);
         return;
     }
 

@@ -36,6 +36,29 @@ static const char *TAG = "commands";
 // nur im Wake-Word-Fenster gefuettert wird.
 #define MN_DET_THRESHOLD 0.05f
 
+// Per-Command-Mindestwahrscheinlichkeit oberhalb des globalen
+// Thresholds (User-Report 2026-06-12): die kurzen Commands matchen
+// auf deutsche freie Saetze, bevor der Satz zu Ende ist ("Wie..." ->
+// "mute" / "volume up", beobachtete False-Positive-Probs 0.05-0.20).
+// Ein verworfener Match beendet die Session NICHT — MultiNet lauscht
+// weiter, und der Satz geht nach dem Timeout normal in die Cloud.
+// Tuning-Punkt: Probs echter Kurz-Commands im Log pruefen (Match- und
+// Reject-Zeilen loggen sie) und ggf. nachziehen.
+static float min_prob(command_id_t id)
+{
+    switch (id) {
+    case CMD_STOP:
+    case CMD_MUTE:
+    case CMD_UNMUTE:
+    case CMD_VOLUME_UP:
+    case CMD_VOLUME_DOWN:
+        return 0.25f;
+    default:
+        // Timer-Phrasen: das globale 0.05 ist fuer sie schon knapp.
+        return 0.0f;
+    }
+}
+
 // Mehrere Phrasen pro Command-ID sind erlaubt (phrase_id unterscheidet
 // sie). phonemes == NULL -> On-Device-G2P aus dem Text.
 static const struct {
@@ -160,8 +183,8 @@ static void detect_chunk(int16_t *chunk)
         return;
     }
 
-    s_active = false;
     if (state == ESP_MN_STATE_TIMEOUT) {
+        s_active = false;
         ESP_LOGI(TAG, "no local command (timeout) -> cloud query");
         if (s_timeout_cb) {
             s_timeout_cb();
@@ -171,12 +194,29 @@ static void detect_chunk(int16_t *chunk)
 
     esp_mn_results_t *res = s_multinet->get_results(s_mn_data);
     if (res->num <= 0) {
+        s_active = false;
         return;
     }
-    ESP_LOGI(TAG, "command %d \"%s\" (prob %.2f)", res->command_id[0],
-             esp_mn_commands_get_string(res->command_id[0]), res->prob[0]);
+
+    command_id_t id = (command_id_t)res->command_id[0];
+    float prob = res->prob[0];
+    if (prob < min_prob(id)) {
+        // Mutmasslicher False-Positive (z.B. deutscher Satz, der einen
+        // Kurz-Command anklingt): Match verwerfen und WEITERLAUSCHEN —
+        // der Rest des Satzes laeuft in den naechsten Detect-Zyklus,
+        // der Cloud-Pfad bleibt erhalten. clean() startet auch das
+        // 6-s-Timeout neu (verschiebt den Cloud-Upload entsprechend).
+        ESP_LOGW(TAG, "rejecting \"%s\" (prob %.2f < %.2f), listening on",
+                 esp_mn_commands_get_string(id), prob, min_prob(id));
+        s_multinet->clean(s_mn_data);
+        return;
+    }
+
+    s_active = false;
+    ESP_LOGI(TAG, "command %d \"%s\" (prob %.2f)", id,
+             esp_mn_commands_get_string(id), prob);
     if (s_match_cb) {
-        s_match_cb((command_id_t)res->command_id[0], res->string);
+        s_match_cb(id, res->string, prob);
     }
 }
 

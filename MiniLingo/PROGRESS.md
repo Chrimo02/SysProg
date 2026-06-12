@@ -20,7 +20,7 @@
 | 4 | MultiNet + Lokale Commands | ✅ erledigt | 2026-06-11, User-Test ok bis auf "thirty minutes" (niedrige Prio, s.u.) |
 | 5 | Groq Whisper Integration | ✅ erledigt | 2026-06-12, User-Test bestanden (inkl. Touch-Trigger + Farb-Fix, Transkript-Bubble ok) |
 | 6 | Gemini Flash Integration | ✅ erledigt | 2026-06-12, User-Test bestanden (Lautsprecher-Test davor: 2 Runden inkl. History-Follow-up) |
-| 7 | Gemini TTS + Wiedergabe | 🟡 implementiert | 2026-06-12; E2E-Test am Gerät blockiert: TTS-Tageslimit (10 Req./Tag) erschöpft — Hörtest + User-Test stehen aus, s.u. |
+| 7 | Gemini TTS + Wiedergabe | 🟡 funktioniert, pausiert | 2026-06-12: E2E vom User bestätigt (gesprochene Antwort kam an). TTS vorerst pausiert: Free-Tier-Limit 10 Req./Tag zu knapp, User sucht performantere Lösung — Text-Antwort genügt einstweilen. Details s.u. |
 | 8 | Polish + Robustness | ⬜ offen | |
 | 9 (optional) | AEC | ⬜ offen | |
 | 10 | Function-Calling für freie Timer-Werte | ⬜ offen | **Nicht mehr optional** — User-Anforderung 2026-06-11: jede gewünschte Sekunden-/Minutenzahl muss über Gemini-Function-Calls funktionieren (MultiNet kann nur das feste 6er-Set) |
@@ -28,6 +28,52 @@
 ---
 
 ## Aktueller Stand / Nächster Schritt
+
+**Nachtrag 2026-06-12 (Session 9, Fortsetzung): User-Test Phase 7 +
+False-Positive-Fixes.** Der User hat mit einem frischen API-Key
+getestet: **die gesprochene Antwort kam an** (E2E funktioniert,
+Latenz "ein paar Sekunden" — der TTS-Request selbst braucht 3-5 s).
+Zwei Probleme aus dem Test, beide behoben:
+
+1. *Während der Wiedergabe matchte ein falsches "stop"* (eigenes
+   Lautsprecher-Signal) und brach die Antwort ab.
+2. *Deutsche Sätze mit "Wie..."-Anfang* matchten oft mitten im Satz
+   als "mute" oder "volume up" und frassen den Cloud-Query.
+
+Fix (geflasht und am Gerät vermessen): **per-Command-Mindest-
+wahrscheinlichkeit** in `commands.c` — die kurzen Commands (stop,
+mute, unmute, volume up/down) brauchen jetzt prob >= 0.25; ein
+verworfener Match beendet die MultiNet-Session NICHT mehr, sondern
+lauscht weiter (der Satz geht nach dem Timeout normal in die Cloud,
+statt gefressen zu werden). Zusätzlich gibt der Match-Callback jetzt
+die prob mit, und während SPEAKING verlangt `main.c` für "stop"
+prob >= 0.30. Messwerte (per `say` am Gerät): echte Kurz-Commands
+matchen mit **0.84-0.92**, die beobachteten False-Positives lagen
+alle bei **0.05-0.20** — saubere Trennung mit Luft in beide
+Richtungen. Tuning-Punkte sind in den Kommentaren markiert; Match-
+und Reject-Logzeilen enthalten die prob.
+
+Außerdem beobachtet: die Preview-TTS wirft sporadisch **transiente
+Serverfehler** (HTTP 500 INTERNAL; vorher schon ein
+finishReason=OTHER ohne Audio) — `cloud.c` macht jetzt genau einen
+Sofort-Retry (nicht bei 429). **Achtung: dieser Retry ist committet,
+aber noch nicht geflasht** — die Firmware auf dem Gerät ist der
+Stand mit Prob-Filter, ohne TTS-Retry (beim nächsten `idf.py flash`
+automatisch drauf).
+
+**TTS ist auf User-Wunsch vorerst pausiert**: das Free-Tier-Limit
+(10 Requests/Tag) ist für den Alltag zu knapp; bis eine
+performantere Lösung gefunden ist (Paid Tier? anderer TTS-Anbieter?),
+genügt die Text-Antwort auf dem Display. Bei erschöpftem Limit zeigt
+jede Antwort die Bubble "Cloud: TTS daily limit" — falls das nervt,
+wäre ein Kconfig-Schalter zum TTS-Deaktivieren der nächste Handgriff.
+
+**Nächster Schritt:** Phase 8 (Polish + Robustness) — oder, falls
+der "stop"-Fix gegen echte Wiedergabe noch verifiziert werden soll:
+ein TTS-Budget von 2 Requests reicht (1x durchspielen lassen, 1x mit
+"stop" abbrechen).
+
+---
 
 **Stand 2026-06-12 (Session 9): Phase 7 implementiert und geflasht;
 der finale Hörtest ist durch das Gemini-TTS-Tageslimit blockiert.**
@@ -159,7 +205,8 @@ Roboter.") kamen wortgenau zurück (~1,5 s für 6 s Audio). Aufbau:
   `mbedtls_ssl_setup -0x7F00` (alloc failed) im internen Heap.
 
 **Bekanntes Problem (2026-06-12): MultiNet-False-Positives bei
-deutschen/freien Saetzen.** Im Test matchte "Wie wird das Wetter..."
+deutschen/freien Saetzen.** *(Behoben in Session 9: per-Command-
+Mindest-Prob 0.25 fuer die Kurz-Commands, siehe Nachtrag oben.)* Im Test matchte "Wie wird das Wetter..."
 einmal als "mute" (prob 0.05) und verwarf den Cloud-Query; auch auf
 Umgebungsgeraeusche gab es Matches ("mute" 0.17, "unmute" 0.20 nach
 spontanen Wake-Detections). Threshold 0.05 ist fuer die Timer-Phrasen
@@ -428,6 +475,16 @@ end-to-end.
   werden in `on_local_command()` verworfen. "stop" stoppt dabei nur
   die Wiedergabe, nicht den Küchen-Timer (anders als im IDLE, wo
   "stop" als "stop timer" gilt).
+- **Per-Command-Mindest-Prob statt globalem Threshold** (Session 9):
+  der globale MultiNet-Threshold bleibt 0.05 (Timer-Phrasen brauchen
+  das), aber die Kurz-Commands (stop/mute/unmute/volume up/down)
+  verlangen prob >= 0.25 (`min_prob()` in `commands.c`); "stop"
+  während SPEAKING >= 0.30 (main.c). Ein verworfener Match lässt die
+  Session weiterlauschen statt sie zu beenden — deutsche Sätze gehen
+  so trotzdem in die Cloud. Gemessen: echte Kurz-Commands 0.84-0.92,
+  False-Positives 0.05-0.20. (Das per-Phrase-`threshold`-Feld von
+  esp-sr wurde bewusst nicht genutzt: undokumentiert, ob mn7_en es
+  respektiert, und es könnte die Session nicht fortsetzen.)
 - **Gemini-TTS-Free-Tier: 10 Requests/Tag** (verifiziert 2026-06-12,
   Quota `GenerateRequestsPerDayPerProjectPerModel-FreeTier`), nicht
   ~15 wie zuvor angenommen. HTTP 429 → eigene UI-Meldung
