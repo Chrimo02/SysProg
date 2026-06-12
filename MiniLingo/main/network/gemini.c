@@ -127,8 +127,8 @@ static esp_err_t parse_reply(const char *json, char *reply,
     return ret;
 }
 
-esp_err_t gemini_generate(const char *user_text, char *reply,
-                          size_t reply_len)
+static esp_err_t generate_once(const char *user_text, char *reply,
+                               size_t reply_len)
 {
     if (strlen(CONFIG_GEMINI_API_KEY) == 0) {
         ESP_LOGE(TAG, "CONFIG_GEMINI_API_KEY not set (menuconfig)");
@@ -187,15 +187,33 @@ esp_err_t gemini_generate(const char *user_text, char *reply,
         return err;
     }
     if (status != 200) {
-        // 429 = Free-Tier-Limit; Retry/Backoff kommt in Phase 8.
         ESP_LOGE(TAG, "HTTP %d: %.256s", status, resp);
-        return ESP_FAIL;
+        // 429 (Rate-Limit) und 5xx sind transient -> Retry im Wrapper;
+        // andere 4xx (z.B. 400, kaputter Request) sind permanent.
+        return (status == 429 || status >= 500) ? ESP_FAIL
+                                                : ESP_ERR_INVALID_RESPONSE;
     }
 
     err = parse_reply(resp, reply, reply_len);
     if (err == ESP_OK) {
         ESP_LOGI(TAG, "reply in %u ms: \"%s\"",
                  (unsigned)(esp_log_timestamp() - t0), reply);
+    }
+    return err;
+}
+
+esp_err_t gemini_generate(const char *user_text, char *reply,
+                          size_t reply_len)
+{
+    esp_err_t err = ESP_FAIL;
+    for (int attempt = 0; attempt < HTTP_MAX_ATTEMPTS; attempt++) {
+        if (attempt > 0) {
+            http_backoff_delay(attempt, TAG);
+        }
+        err = generate_once(user_text, reply, reply_len);
+        if (!http_err_is_transient(err)) {
+            break;
+        }
     }
     return err;
 }

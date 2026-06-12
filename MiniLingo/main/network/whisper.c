@@ -74,8 +74,8 @@ static esp_err_t parse_transcript(const char *json, char *text,
     return ret;
 }
 
-esp_err_t whisper_transcribe(const uint8_t *wav, size_t wav_bytes,
-                             char *text, size_t text_len)
+static esp_err_t transcribe_once(const uint8_t *wav, size_t wav_bytes,
+                                 char *text, size_t text_len)
 {
     if (strlen(CONFIG_GROQ_API_KEY) == 0) {
         ESP_LOGE(TAG, "CONFIG_GROQ_API_KEY not set (menuconfig)");
@@ -141,9 +141,11 @@ esp_err_t whisper_transcribe(const uint8_t *wav, size_t wav_bytes,
         return err;
     }
     if (status != 200) {
-        // 429 = Free-Tier-Limit; Retry/Backoff kommt in Phase 8.
         ESP_LOGE(TAG, "HTTP %d: %.256s", status, body);
-        return ESP_FAIL;
+        // 429 (Rate-Limit) und 5xx sind transient -> Retry im Wrapper;
+        // andere 4xx (z.B. 401, ungueltiger Key) sind permanent.
+        return (status == 429 || status >= 500) ? ESP_FAIL
+                                                : ESP_ERR_INVALID_RESPONSE;
     }
 
     err = parse_transcript(body, text, text_len);
@@ -151,6 +153,22 @@ esp_err_t whisper_transcribe(const uint8_t *wav, size_t wav_bytes,
         ESP_LOGI(TAG, "transcribed %u KB in %u ms: \"%s\"",
                  (unsigned)(wav_bytes / 1024),
                  (unsigned)(esp_log_timestamp() - t0), text);
+    }
+    return err;
+}
+
+esp_err_t whisper_transcribe(const uint8_t *wav, size_t wav_bytes,
+                             char *text, size_t text_len)
+{
+    esp_err_t err = ESP_FAIL;
+    for (int attempt = 0; attempt < HTTP_MAX_ATTEMPTS; attempt++) {
+        if (attempt > 0) {
+            http_backoff_delay(attempt, TAG);
+        }
+        err = transcribe_once(wav, wav_bytes, text, text_len);
+        if (!http_err_is_transient(err)) {
+            break;
+        }
     }
     return err;
 }

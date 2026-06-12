@@ -127,8 +127,8 @@ static esp_err_t parse_audio(const char *json, size_t *samples,
     return ret;
 }
 
-esp_err_t tts_synthesize(const char *text, const int16_t **pcm,
-                         size_t *samples, uint32_t *sample_rate)
+static esp_err_t synthesize_once(const char *text, const int16_t **pcm,
+                                 size_t *samples, uint32_t *sample_rate)
 {
     if (strlen(CONFIG_GEMINI_API_KEY) == 0) {
         ESP_LOGE(TAG, "CONFIG_GEMINI_API_KEY not set (menuconfig)");
@@ -192,12 +192,19 @@ esp_err_t tts_synthesize(const char *text, const int16_t **pcm,
     if (status != 200) {
         // 429 = Free-Tier-Limit (10 Requests/Tag fuer die TTS-Preview,
         // verifiziert 2026-06-12) — eigene Kennung, damit die UI das
-        // Limit vom generischen Fehler unterscheidet. Retry/Backoff
-        // kommt in Phase 8.
+        // Limit vom generischen Fehler unterscheidet und der Wrapper
+        // nicht sinnlos wiederholt. 5xx ist transient (die Preview
+        // wirft sporadisch 500 INTERNAL), restliche 4xx permanent.
         ESP_LOGE(TAG, "HTTP %d: %.256s", status, s_resp);
-        return status == 429 ? ESP_ERR_NOT_ALLOWED : ESP_FAIL;
+        if (status == 429) {
+            return ESP_ERR_NOT_ALLOWED;
+        }
+        return status >= 500 ? ESP_FAIL : ESP_ERR_INVALID_RESPONSE;
     }
 
+    // parse_audio scheitert auch bei finishReason=OTHER ohne Audio —
+    // ebenfalls transient (beobachtet 2026-06-12), der Wrapper
+    // wiederholt das mit.
     err = parse_audio(s_resp, samples, sample_rate);
     if (err == ESP_OK) {
         *pcm = s_pcm;
@@ -206,6 +213,22 @@ esp_err_t tts_synthesize(const char *text, const int16_t **pcm,
                  (unsigned)(body_len / 1024),
                  (float)*samples / (float)*sample_rate,
                  (unsigned)*sample_rate);
+    }
+    return err;
+}
+
+esp_err_t tts_synthesize(const char *text, const int16_t **pcm,
+                         size_t *samples, uint32_t *sample_rate)
+{
+    esp_err_t err = ESP_FAIL;
+    for (int attempt = 0; attempt < HTTP_MAX_ATTEMPTS; attempt++) {
+        if (attempt > 0) {
+            http_backoff_delay(attempt, TAG);
+        }
+        err = synthesize_once(text, pcm, samples, sample_rate);
+        if (!http_err_is_transient(err)) {
+            break;
+        }
     }
     return err;
 }
