@@ -43,14 +43,28 @@ static atomic_bool s_busy;
 // speaking = TTS-Wiedergabe laeuft (Teilintervall von busy); gelesen
 // vom afe_fetch_task (MultiNet-"stop"-Session) und von main.c.
 static atomic_bool s_speaking;
+// Laufzeit-Schalter (Phase 10b): TTS-Vorlesen an/aus ueber den Button.
+// CONFIG_TTS_SPEAK_REPLIES gibt nur noch den Startwert vor.
+static atomic_bool s_tts_enabled;
+// PSRAM-Buffer erst beim ersten Vorlesen allokieren (lazy); nur im
+// network_task gelesen/geschrieben, daher kein atomic noetig.
+static bool s_tts_inited;
 
-#if CONFIG_TTS_SPEAK_REPLIES
 // Antwort vorlesen (Phase 7): TTS-Request (Retry/Backoff macht tts.c),
 // dann blockierende Wiedergabe ueber den Player-Task — "stop"
 // (MultiNet) bricht sie per canned_audio_stop() ab. Ein TTS-Fehler ist
 // nicht fatal: die Antwort steht bereits als Bubble auf dem Display.
 static void speak_reply(const char *reply)
 {
+    if (!s_tts_inited) {
+        // Lazy: 2,5 MB PSRAM erst jetzt holen (Toggle war an).
+        if (tts_init() != ESP_OK) {
+            s_cb(CLOUD_EVT_ERROR, "TTS init failed");
+            return;
+        }
+        s_tts_inited = true;
+    }
+
     const int16_t *pcm;
     size_t samples;
     uint32_t rate;
@@ -70,7 +84,6 @@ static void speak_reply(const char *reply)
     canned_audio_play_pcm(pcm, samples, rate);
     atomic_store(&s_speaking, false);
 }
-#endif // CONFIG_TTS_SPEAK_REPLIES
 
 static int arg_int(const cJSON *args, const char *key, int fallback)
 {
@@ -156,9 +169,9 @@ static void network_task(void *arg)
                 chat_history_push(CHAT_ROLE_USER, text);
                 chat_history_push(CHAT_ROLE_MODEL, result.text);
                 s_cb(CLOUD_EVT_REPLY, result.text);
-#if CONFIG_TTS_SPEAK_REPLIES
-                speak_reply(result.text);
-#endif
+                if (atomic_load(&s_tts_enabled)) {
+                    speak_reply(result.text);
+                }
                 s_cb(CLOUD_EVT_DONE, "");
             }
         }
@@ -175,13 +188,12 @@ esp_err_t cloud_init(cloud_event_cb_t cb)
     if (err != ESP_OK) {
         return err;
     }
-#if CONFIG_TTS_SPEAK_REPLIES
-    // Nur bei aktiviertem TTS — tts_init() allokiert 2,5 MB PSRAM
-    // (Response- + PCM-Buffer).
-    err = tts_init();
-    if (err != ESP_OK) {
-        return err;
-    }
+    // Startwert aus dem Kconfig; tts_init() (2,5 MB PSRAM) passiert lazy
+    // in speak_reply(), sobald der Toggle das erste Mal an ist.
+#ifdef CONFIG_TTS_SPEAK_REPLIES
+    atomic_store(&s_tts_enabled, true);
+#else
+    atomic_store(&s_tts_enabled, false);
 #endif
     s_cb = cb;
     s_queue = xQueueCreate(1, sizeof(cloud_job_t));
@@ -211,4 +223,14 @@ bool cloud_is_busy(void)
 bool cloud_is_speaking(void)
 {
     return atomic_load(&s_speaking);
+}
+
+void cloud_set_tts_enabled(bool enabled)
+{
+    atomic_store(&s_tts_enabled, enabled);
+}
+
+bool cloud_tts_enabled(void)
+{
+    return atomic_load(&s_tts_enabled);
 }

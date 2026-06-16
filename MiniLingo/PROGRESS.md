@@ -31,6 +31,27 @@
 
 ## Aktueller Stand / Nächster Schritt
 
+**Nachtrag 2026-06-16 (Session 11, Fortsetzung): TTS-Toggle-Button
+(User-Wunsch).** Kleiner Button unten rechts im Mic-Bereich
+(`main/ui/ui_tts_button.c`, "TTS"-Label, grün = an / grau = aus)
+schaltet das Vorlesen der Antworten zur Laufzeit. Klick →
+`on_tts_button_clicked()` in main.c (LVGL-Task) → `cloud_set_tts_enabled()`
+(atomar) + Button-Optik + Bubble "Voice replies on/off".
+
+- `CONFIG_TTS_SPEAK_REPLIES` ist jetzt nur noch der **Startwert** des
+  Laufzeit-Flags (default n), kein reiner Compile-Schalter mehr.
+- Die **2,5 MB PSRAM-TTS-Buffer werden lazy** beim ersten tatsächlichen
+  Vorlesen allokiert (`s_tts_inited`-Guard in `speak_reply`), nicht mehr
+  in `cloud_init` — aus bleibt also exakt so speichersparsam wie zuvor.
+- Achtung Alltag: TTS nutzt Gemini (10 Requests/Tag Free-Tier) und
+  bringt 3-5 s Latenz — der Button macht das jetzt bewusst pro Session
+  steuerbar, der "stop"-während-Wiedergabe-Test (Session 9) ist beim
+  Aktivieren weiterhin offen.
+- **Build grün, geflasht. User-Test ausstehend** (Button togglet,
+  gesprochene Antwort kommt bei "an", Optik/Bubble stimmen).
+
+---
+
 **Stand 2026-06-16 (Session 11): Phase 10 implementiert und gebaut
 (Build grün), User-Test am Gerät ausstehend.** Das LLM (Cerebras
 gpt-oss-120b) kann jetzt per OpenAI-Tool-Calling die echten Aktionen
@@ -764,9 +785,14 @@ end-to-end.
   mit Backoff 1 s/2 s (`HTTP_MAX_ATTEMPTS` in `http_util.h`).
   Transient = Verbindungsfehler/429/5xx/kaputte Antwort; permanent =
   4xx (`ESP_ERR_INVALID_RESPONSE`), kein API-Key, TTS-Tageslimit.
-- **TTS per Kconfig abschaltbar** (`TTS_SPEAK_REPLIES`, Default n —
-  Phase 8, User-Wunsch): Free-Tier-Limit zu knapp, TTS-Latenz 3-5 s.
-  Aus spart 2,5 MB PSRAM (TTS-Buffer werden nicht allokiert).
+- **TTS zur Laufzeit per Button toggelbar** (Session 11, 2026-06-16;
+  ersetzt den reinen Compile-Schalter aus Phase 8): `TTS_SPEAK_REPLIES`
+  ist nur noch der Startwert von `s_tts_enabled` (atomar in `cloud.c`),
+  der TTS-Button unten rechts (`ui_tts_button.c`) schaltet live um. Die
+  2,5 MB PSRAM-Buffer werden **lazy** beim ersten Vorlesen allokiert
+  (`tts_init` aus `speak_reply` statt `cloud_init`) — aus kostet keinen
+  PSRAM. Free-Tier-Limit (10/Tag) + 3-5 s Latenz bleiben der Grund,
+  warum Default aus ist.
 - **Stille-Guard 1000 ms** (Phase 8, `MIN_SPEECH_MS` in `main.c`):
   Captures mit weniger VAD-Sprache gehen nicht zu Whisper
   (Stille-Halluzination). Achtung bei Re-Tuning: das VAD meldet

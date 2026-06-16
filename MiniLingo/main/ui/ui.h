@@ -40,3 +40,10 @@ void ui_status_bar_set_volume_changed_cb(ui_volume_changed_cb_t cb);
 // Mic-Button (ui_mic_button.c)
 void ui_mic_button_set_state(ui_mic_state_t state);
 void ui_mic_button_set_click_cb(ui_mic_click_cb_t cb);
+
+// TTS-Toggle-Button (ui_tts_button.c): kleiner Button unten rechts,
+// schaltet das Vorlesen an/aus. Klick im LVGL-Task-Kontext, wie der
+// Mic-Button. set_enabled spiegelt nur die Optik (gruen an / grau aus).
+typedef void (*ui_tts_toggle_cb_t)(void);
+void ui_tts_button_set_enabled(bool on);
+void ui_tts_button_set_click_cb(ui_tts_toggle_cb_t cb);

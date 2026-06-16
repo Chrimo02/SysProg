@@ -11,3 +11,4 @@
 void ui_status_bar_create(lv_obj_t *parent);
 void ui_chat_create(lv_obj_t *parent);
 void ui_mic_button_create(lv_obj_t *parent);
+void ui_tts_button_create(lv_obj_t *parent);

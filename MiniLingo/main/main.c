@@ -135,6 +135,17 @@ static void on_mic_button_clicked(void)
     afe_pipeline_request_listening();
 }
 
+static void on_tts_button_clicked(void)
+{
+    // LVGL-Task-Kontext. cloud_set_tts_enabled ist atomar; das eigentliche
+    // tts_init (2,5 MB PSRAM) passiert lazy im network_task beim ersten
+    // Vorlesen. Button-Optik + kurze Bestaetigung direkt hier.
+    bool on = !cloud_tts_enabled();
+    cloud_set_tts_enabled(on);
+    ui_tts_button_set_enabled(on);
+    ui_chat_add_local_bubble(on ? "Voice replies on" : "Voice replies off");
+}
+
 static void on_wifi_status(bool connected)
 {
     atomic_store(&s_wifi_event, connected ? 1 : 0);
@@ -519,6 +530,14 @@ void app_main(void)
     ui_status_bar_set_volume_changed_cb(on_volume_slider_changed);
     ui_status_bar_set_state_text(IDLE_STATE_TEXT);
     ui_status_bar_set_wifi_connected(false);
+    // TTS-Toggle: Startzustand aus demselben Kconfig wie cloud.c (vor
+    // dem lvgl_task setzen — danach waeren UI-Calls nicht thread-safe).
+    ui_tts_button_set_click_cb(on_tts_button_clicked);
+#ifdef CONFIG_TTS_SPEAK_REPLIES
+    ui_tts_button_set_enabled(true);
+#else
+    ui_tts_button_set_enabled(false);
+#endif
     lv_timer_create(app_event_timer_cb, 50, NULL);
 
     xTaskCreatePinnedToCore(lvgl_task, "lvgl", 8192, NULL, 4, NULL, 0);

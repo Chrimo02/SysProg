@@ -40,3 +40,11 @@ bool cloud_is_busy(void);
 // "stop"-Command mitlaufen (WakeNet-Detections sind ueber das
 // cloud_is_busy-Gate eh unterdrueckt — kein Self-Trigger).
 bool cloud_is_speaking(void);
+
+// Laufzeit-Schalter fuer das Vorlesen der Antworten (ersetzt den
+// reinen Compile-Schalter CONFIG_TTS_SPEAK_REPLIES, der nur noch den
+// Startwert vorgibt). Die 2,5 MB PSRAM-TTS-Buffer werden lazy beim
+// ersten tatsaechlichen Vorlesen allokiert — aus bleibt also so
+// speichersparsam wie bisher. Atomar, aus jedem Task aufrufbar.
+void cloud_set_tts_enabled(bool enabled);
+bool cloud_tts_enabled(void);

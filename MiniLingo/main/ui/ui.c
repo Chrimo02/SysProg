@@ -13,4 +13,5 @@ void ui_init(void)
     ui_status_bar_create(scr);
     ui_chat_create(scr);
     ui_mic_button_create(scr);
+    ui_tts_button_create(scr);
 }
