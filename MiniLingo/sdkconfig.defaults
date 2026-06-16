@@ -24,13 +24,14 @@ CONFIG_FREERTOS_HZ=1000
 # (mbedtls_ssl_setup -0x7F00 = alloc failed).
 CONFIG_MBEDTLS_EXTERNAL_MEM_ALLOC=y
 
-# esp-sr (Phase 2): WakeNet9 "Mycroft" (bis 2026-06-11: Alexa).
-# MultiNet7-EN wird schon jetzt in
-# die model-Partition gepackt, damit fuer Phase 4 kein erneutes
-# Model-Flashen noetig ist (geladen wird es erst dort).
+# esp-sr (Phase 2/Phase B): WakeNet9 fuer 3 Charaktere — Mycroft, Alexa
+# und Jarvis werden gemeinsam in die model-Partition gepackt (je ~292 KB),
+# der Charakter-Switcher schaltet zur Laufzeit per Software-Filter um.
+# MultiNet7-EN liegt fuer die lokalen Commands daneben.
 CONFIG_MODEL_IN_FLASH=y
 CONFIG_SR_WN_WN9_MYCROFT_TTS=y
-# CONFIG_SR_WN_WN9_ALEXA is not set
+CONFIG_SR_WN_WN9_ALEXA=y
+CONFIG_SR_WN_WN9_JARVIS_TTS=y
 CONFIG_SR_MN_EN_MULTINET7_QUANT=y
 
 # LVGL v9

@@ -15,6 +15,7 @@
 #include "esp_afe_sr_models.h"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
+#include "esp_wn_models.h"
 #include "sdkconfig.h"
 
 #include "drivers/audio_in.h"
@@ -31,10 +32,21 @@ static esp_afe_sr_data_t *s_afe_data;
 // Touch-Trigger (Mic-Button): gesetzt aus dem LVGL-Task, konsumiert
 // vom afe_fetch_task mit dem naechsten AFE-Frame (~32 ms Latenz).
 static atomic_bool s_listen_request;
+// Charakter-Switcher (Phase B): aktiver Charakter (0..2) und das Mapping
+// WakeNet-Model-Index (1-basiert) -> Charakter-Index. s_num_wakenets =
+// tatsaechlich geladene Wakenets.
+static atomic_int s_active_character;
+static int s_char_for_model[1 + 3];  // Index 0 ungenutzt
+static int s_num_wakenets;
 
 void afe_pipeline_request_listening(void)
 {
     atomic_store(&s_listen_request, true);
+}
+
+void afe_pipeline_set_active_character(int idx)
+{
+    atomic_store(&s_active_character, idx);
 }
 
 static void afe_feed_task(void *arg)
@@ -118,6 +130,19 @@ static void afe_fetch_task(void *arg)
             if (touch && res->wakeup_state != WAKENET_DETECTED) {
                 wake_word_on_touch();
             } else {
+                // Charakter-Filter (Phase B): nur das Wakeword des
+                // aktiven Charakters startet eine Session. Touch umgeht
+                // den Filter (nutzt den aktiven Charakter).
+                int midx = res->wakenet_model_index;
+                int ch = (midx >= 1 && midx <= s_num_wakenets)
+                             ? s_char_for_model[midx]
+                             : -1;
+                if (!touch && ch != atomic_load(&s_active_character)) {
+                    ESP_LOGI(TAG, "wake ignored: model %d (char %d) != "
+                                  "active %d", midx, ch,
+                             atomic_load(&s_active_character));
+                    continue;
+                }
                 wake_word_on_detected(res->wake_word_index);
             }
             // Capture ab dem naechsten Frame — res->data dieses Frames
@@ -179,8 +204,20 @@ esp_err_t afe_pipeline_init(srmodel_list_t *models)
     cfg->vad_init = true;
     cfg->afe_perferred_core = 1;
     cfg->afe_perferred_priority = 5;
-    ESP_LOGI(TAG, "wakenet model: %s",
-             cfg->wakenet_model_name ? cfg->wakenet_model_name : "(none)");
+
+    // Phase B: drei Wakenets fuer die drei Charaktere. Die Reihenfolge
+    // MUSS zur character_t-Tabelle in main.c passen (0=Mycroft, 1=Alexa,
+    // 2=Jarvis). Zwei Modelle gehen ueber die Config (Model-Index 1/2),
+    // das dritte kommt nach create per add_wakenet_model() dazu (Index 3).
+    char *wn_mycroft = esp_srmodel_filter(models, ESP_WN_PREFIX, "mycroft");
+    char *wn_alexa = esp_srmodel_filter(models, ESP_WN_PREFIX, "alexa");
+    char *wn_jarvis = esp_srmodel_filter(models, ESP_WN_PREFIX, "jarvis");
+    cfg->wakenet_model_name = wn_mycroft;
+    cfg->wakenet_model_name_2 = wn_alexa;
+    ESP_LOGI(TAG, "wakenets: 1=%s 2=%s 3(add)=%s",
+             wn_mycroft ? wn_mycroft : "(none)",
+             wn_alexa ? wn_alexa : "(none)",
+             wn_jarvis ? wn_jarvis : "(none)");
 
     s_afe_handle = esp_afe_handle_from_config(cfg);
     s_afe_data = s_afe_handle->create_from_config(cfg);
@@ -189,6 +226,23 @@ esp_err_t afe_pipeline_init(srmodel_list_t *models)
         ESP_LOGE(TAG, "AFE create_from_config failed");
         return ESP_FAIL;
     }
+
+    // Drittes Wakenet (Jarvis) zur Laufzeit ergaenzen -> Model-Index 3.
+    // wn_jarvis zeigt in die srmodel-Liste (lebt programmweit), bleibt
+    // also nach afe_config_free gueltig.
+    s_num_wakenets = 2;
+    if (wn_jarvis) {
+        int n = s_afe_handle->add_wakenet_model(s_afe_data, wn_jarvis);
+        ESP_LOGI(TAG, "add_wakenet_model(jarvis) -> %d wakenet(s)", n);
+        if (n > 0) {
+            s_num_wakenets = n;
+        }
+    }
+    // Model-Index (1-basiert) -> Charakter-Index. Am Boot-Log
+    // gegenpruefen, falls esp-sr die Indizes anders vergibt.
+    s_char_for_model[1] = 0;  // Mycroft
+    s_char_for_model[2] = 1;  // Alexa
+    s_char_for_model[3] = 2;  // Jarvis
 
     // Kconfig-Threshold (0-100) auf WakeNet-Range 0.0-1.0 mappen;
     // Index 1 = erstes Wake Word. 0 = Model-Default belassen

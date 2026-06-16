@@ -38,6 +38,7 @@
 #include "local/volume.h"
 #include "config.h"
 #include "network/cloud.h"
+#include "network/llm.h"
 #include "network/provisioning.h"
 #include "network/wifi.h"
 #include "speech/afe_pipeline.h"
@@ -48,8 +49,29 @@
 
 static const char *TAG = "main";
 
-#define IDLE_STATE_TEXT  "Listening for Mycroft"
 #define INITIAL_VOLUME   60
+
+// Charakter-Switcher (Phase B): Klick auf den State-Text cyclet durch
+// diese Tabelle. Die Reihenfolge MUSS zum Wakenet-Model-Index-Mapping in
+// afe_pipeline.c passen (0=Mycroft -> Model 1 usw.). persona ist der
+// austauschbare System-Prompt-Anfang; die Tool-Hinweise hängt llm.c an.
+typedef struct {
+    const char *name;
+    const char *idle_text;
+    const char *persona;
+} character_t;
+
+static const character_t s_characters[] = {
+    { "Mycroft", "Listening for Mycroft",
+      "Du bist Mycroft, ein sachlicher und knapper Sprachassistent." },
+    { "Alexa", "Listening for Alexa",
+      "Du bist Alexa, eine freundliche und hilfsbereite "
+      "Sprachassistentin." },
+    { "Jarvis", "Listening for Jarvis",
+      "Du bist Jarvis, ein hoeflicher britischer Butler mit trockenem "
+      "Humor; sprich den Nutzer gelegentlich mit 'Sir' an." },
+};
+#define NUM_CHARACTERS (sizeof(s_characters) / sizeof(s_characters[0]))
 
 // Stille-Guard (Phase 8): Aufnahmen mit weniger VAD-Sprache gehen
 // nicht zu Whisper — der halluziniert aus (fast) reiner Stille Saetze
@@ -99,6 +121,7 @@ static bool s_processing;
 static bool s_speaking;
 static char s_state_text[24];
 static int s_volume_shown = -1;
+static int s_character;  // aktiver Charakter-Index (LVGL-Task)
 
 static uint32_t lvgl_tick_get_cb(void)
 {
@@ -155,6 +178,23 @@ static void on_wifi_clicked(void)
     provisioning_start();
     ui_chat_add_local_bubble("Setup-WLAN: MiniLingo-Setup (PW minilingo)");
     ui_chat_add_local_bubble("Browser: http://192.168.4.1");
+}
+
+static void on_character_clicked(void)
+{
+    // LVGL-Task-Kontext. Nächsten Charakter aktivieren: Wakeword-Filter
+    // (afe_pipeline, atomar), Persona (llm, Pointer-Tausch) und
+    // NVS-Persistenz. Der Idle-Text zieht der nächste update_state_text-
+    // Tick nach.
+    s_character = (s_character + 1) % NUM_CHARACTERS;
+    const character_t *c = &s_characters[s_character];
+    afe_pipeline_set_active_character(s_character);
+    llm_set_system_prompt(c->persona);
+    config_set_character(s_character);
+
+    char bubble[32];
+    snprintf(bubble, sizeof(bubble), "Now: %s", c->name);
+    ui_chat_add_local_bubble(bubble);
 }
 
 static void on_wifi_status(bool connected)
@@ -410,7 +450,8 @@ static void update_state_text(void)
         snprintf(text, sizeof(text), "Timer: %02d:%02d", left / 60,
                  left % 60);
     } else {
-        snprintf(text, sizeof(text), IDLE_STATE_TEXT);
+        snprintf(text, sizeof(text), "%s",
+                 s_characters[s_character].idle_text);
     }
 
     if (strcmp(text, s_state_text) != 0) {
@@ -534,6 +575,15 @@ void app_main(void)
     // Kconfig-Defaults zurück, wenn nichts provisioniert ist.
     ESP_ERROR_CHECK(config_init());
 
+    // Aktiven Charakter aus dem NVS wiederherstellen (Phase B). Persona
+    // hier setzen (llm = network_task, Pointer-Tausch); der Wakenet-
+    // Filter wird nach afe_pipeline_init scharfgeschaltet.
+    s_character = config_character_index();
+    if (s_character < 0 || s_character >= (int)NUM_CHARACTERS) {
+        s_character = 0;
+    }
+    llm_set_system_prompt(s_characters[s_character].persona);
+
     lv_init();
     lv_tick_set_cb(lvgl_tick_get_cb);
 
@@ -544,7 +594,8 @@ void app_main(void)
     ui_mic_button_set_click_cb(on_mic_button_clicked);
     ui_status_bar_set_volume_changed_cb(on_volume_slider_changed);
     ui_status_bar_set_wifi_clicked_cb(on_wifi_clicked);
-    ui_status_bar_set_state_text(IDLE_STATE_TEXT);
+    ui_status_bar_set_state_clicked_cb(on_character_clicked);
+    ui_status_bar_set_state_text(s_characters[s_character].idle_text);
     ui_status_bar_set_wifi_connected(false);
     // TTS-Toggle: Startzustand aus demselben Kconfig wie cloud.c (vor
     // dem lvgl_task setzen — danach waeren UI-Calls nicht thread-safe).
@@ -589,6 +640,8 @@ void app_main(void)
     ESP_ERROR_CHECK(commands_init(models, on_local_command,
                                   on_command_timeout));
     ESP_ERROR_CHECK(afe_pipeline_init(models));
+    // Wakenet-Filter auf den wiederhergestellten Charakter setzen.
+    afe_pipeline_set_active_character(s_character);
 
     ESP_LOGI(TAG, "Phase 8 up: local commands + cloud STT + LLM"
 #if CONFIG_TTS_SPEAK_REPLIES

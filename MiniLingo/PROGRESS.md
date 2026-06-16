@@ -31,6 +31,59 @@
 
 ## Aktueller Stand / Nächster Schritt
 
+**Stand 2026-06-16 (Session 12, Fortsetzung): Phase B —
+Charakter-/Wakeword-Switcher implementiert, gebaut, geflasht.
+Voice-Test (User) ausstehend.** Klick auf den Status-Text oben cyclet
+Mycroft → Alexa → Jarvis: jeweils eigenes Wakeword (Live-Wechsel ohne
+Reboot) und eigene KI-Persona.
+
+- **3 Wakewords geflasht** (`sdkconfig.defaults` + `sdkconfig`):
+  `WN9_MYCROFT_TTS` + `WN9_ALEXA` + `WN9_JARVIS_TTS` (je ~292 KB),
+  srmodels.bin neu gepackt.
+- **`afe_pipeline.c`**: zwei Wakenets per Config
+  (`wakenet_model_name` = mycroft = Model-Index 1, `_2` = alexa = 2),
+  das dritte (jarvis = 3) nach `create_from_config` per
+  `add_wakenet_model()`. **Software-Filter im afe_fetch_task**: eine
+  echte Wake-Detection startet nur dann eine Session, wenn ihr
+  `wakenet_model_index` zum aktiven Charakter passt (Mapping
+  `s_char_for_model[]`); Touch umgeht den Filter.
+  `afe_pipeline_set_active_character()` (atomar).
+- **`llm.c`**: `SYSTEM_INSTRUCTION` aufgeteilt in `DEFAULT_PERSONA` +
+  `TOOL_INSTRUCTIONS`; `llm_set_system_prompt()` tauscht die Persona
+  (Pointer), `build_request` hängt die Tool-Hinweise immer an (Phase-10-
+  Tools bleiben in jeder Persona aktiv).
+- **`main.c`**: `character_t s_characters[3]` (Name/Idle-Text/Persona),
+  `on_character_clicked` cyclet + setzt Wakenet-Filter + Persona +
+  persistiert via `config_set_character` (NVS). Idle-Text in
+  `update_state_text` kommt aus der Tabelle. Aktiver Charakter wird beim
+  Boot aus dem NVS wiederhergestellt.
+- **`ui_status_bar.c`**: State-Label klickbar, Callback
+  `ui_status_bar_set_state_clicked_cb`.
+
+**Verifikation:** Build grün (App 20% frei). Am Gerät: stabiles Idle
+ohne Bootloop/Panic (passiver Serial-Read mit DTR = 0 Zeilen) → die 3
+Wakenets laden ohne RAM-/Modell-Fehler (sonst würde
+`ESP_ERROR_CHECK(afe_pipeline_init)` panic-loopen). **Headless-Boot-Log-
+Capture ging auf dem Native-USB-Serial-JTAG nicht** (Konsole DTR-gated,
+re-enumeriert beim Reset) — den Boot-Log mit dem Index-Mapping per
+`idf.py -p /dev/cu.usbmodem2101 monitor` (TTY nötig) ansehen.
+
+**User-Test ausstehend (Voice):**
+1. Status-Text antippen → „Listening for Mycroft/Alexa/Jarvis" cyclet
+   + Bubble „Now: X".
+2. Aktiv = Jarvis: „Jarvis" weckt, „Mycroft"/„Alexa" wecken NICHT;
+   Antwort im Jarvis-Ton.
+3. **Falls ein Wakeword die falsche Persona aktiviert**, stimmt das
+   Index→Charakter-Mapping in `afe_pipeline.c` (`s_char_for_model[]`)
+   nicht — am Boot-Log (`wakenets: 1=… 2=… 3=…` + „wake ignored:
+   model N") gegenprüfen und die Zuordnung tauschen.
+4. Regression: Timer-/Volume-Tools in jeder Persona; Charakter überlebt
+   Reboot.
+
+Danach ist nur noch Phase 9 (AEC) offen — optional.
+
+---
+
 **Stand 2026-06-16 (Session 12): Phase A — WLAN-Setup-Portal
 (Runtime-Provisioning) implementiert, gebaut, geflasht. User-Test
 ausstehend.** WLAN-Zugang und API-Keys lassen sich jetzt ohne USB/PC
@@ -851,6 +904,15 @@ end-to-end.
   -> afe_fetch_task startet die normale Listening-Session ohne
   WakeNet. `wake_word_on_touch()` feuert denselben Listener wie das
   Wake Word.
+- **Charakter-Switcher: 3 Wakenets gleichzeitig + Software-Filter**
+  (Phase B, Session 12): statt das aktive WakeNet-Modell umzuschalten
+  (esp-sr bietet kein sauberes per-Modell-Disable) laufen Mycroft/Alexa/
+  Jarvis parallel; der `afe_fetch_task` verwirft Detections, deren
+  `wakenet_model_index` nicht zum aktiven Charakter gehört. Kein Reboot
+  beim Wechsel. Persona-Prompt via `llm_set_system_prompt` (Pointer-
+  Tausch), Tool-Hinweise (`TOOL_INSTRUCTIONS`) bleiben in jeder Persona.
+  Reihenfolge der `character_t`-Tabelle (main.c) MUSS zum Model-Index-
+  Mapping (`s_char_for_model[]`, afe_pipeline.c) passen.
 - **Config kommt aus NVS, nicht mehr nur aus Kconfig** (Session 12,
   `main/config.c`): SSID/Passwort/API-Keys/Modelle werden beim Boot aus
   dem NVS-Namespace `minilingo` geladen, Fallback ist der jeweilige

@@ -19,11 +19,19 @@ static lv_timer_t *s_volume_hide_timer;
 static ui_volume_changed_cb_t s_volume_cb;
 static int s_volume_percent;
 static ui_wifi_clicked_cb_t s_wifi_cb;
+static ui_state_clicked_cb_t s_state_cb;
 
 static void wifi_label_click_cb(lv_event_t *e)
 {
     if (s_wifi_cb) {
         s_wifi_cb();
+    }
+}
+
+static void state_label_click_cb(lv_event_t *e)
+{
+    if (s_state_cb) {
+        s_state_cb();
     }
 }
 
@@ -114,6 +122,12 @@ void ui_status_bar_create(lv_obj_t *parent)
     lv_label_set_long_mode(s_state_label, LV_LABEL_LONG_DOT);
     lv_obj_set_style_text_align(s_state_label, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_align(s_state_label, LV_ALIGN_CENTER, 0, 0);
+    // Klick auf den State-Text wechselt den Charakter (Mycroft/Alexa/
+    // Jarvis) — Wakeword + Persona.
+    lv_obj_add_flag(s_state_label, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_ext_click_area(s_state_label, 8);
+    lv_obj_add_event_cb(s_state_label, state_label_click_cb,
+                        LV_EVENT_CLICKED, NULL);
 
     s_volume_label = lv_label_create(bar);
     lv_label_set_text(s_volume_label, "");
@@ -177,4 +191,9 @@ void ui_status_bar_set_volume_changed_cb(ui_volume_changed_cb_t cb)
 void ui_status_bar_set_wifi_clicked_cb(ui_wifi_clicked_cb_t cb)
 {
     s_wifi_cb = cb;
+}
+
+void ui_status_bar_set_state_clicked_cb(ui_state_clicked_cb_t cb)
+{
+    s_state_cb = cb;
 }

@@ -32,3 +32,9 @@ typedef struct {
 // Retry/Backoff bei transienten Fehlern macht das Modul selbst
 // (http_util.h).
 esp_err_t llm_generate(const char *user_text, llm_result_t *out);
+
+// Setzt die aktive Persona (Charakter-Switcher, Phase B). persona ist ein
+// statisches String-Literal (z. B. aus der character_t-Tabelle in main.c);
+// die Tool-Hinweise hängt build_request selbst an. NULL = Default-Persona.
+// Aus dem LVGL-Task aufrufbar.
+void llm_set_system_prompt(const char *persona);

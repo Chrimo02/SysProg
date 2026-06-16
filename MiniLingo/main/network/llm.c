@@ -23,15 +23,30 @@ static const char *TAG = "llm";
 
 #define LLM_URL "https://api.cerebras.ai/v1/chat/completions"
 
-// Erzwingt knappe Antworten ohne Markdown — Sternchen klingen im TTS
-// (Phase 7) schrecklich. (Uebernommen aus der Gemini-Integration.)
-#define SYSTEM_INSTRUCTION \
-    "Du bist ein kompakter Sprachassistent namens MiniLingo. Halte " \
-    "Antworten unter 3 Saetzen und ohne Markdown-Formatierung. Du " \
+// System-Prompt = Persona (Phase B, per llm_set_system_prompt zur
+// Laufzeit umschaltbar) + TOOL_INSTRUCTIONS. Die Tool-Hinweise MUESSEN
+// in jeder Persona erhalten bleiben, sonst brechen die Phase-10-Tools.
+// Knappe Antworten ohne Markdown — Sternchen klingen im TTS schrecklich.
+#define DEFAULT_PERSONA \
+    "Du bist ein kompakter Sprachassistent namens MiniLingo."
+
+#define TOOL_INSTRUCTIONS \
+    " Halte Antworten unter 3 Saetzen und ohne Markdown-Formatierung. Du " \
     "steuerst einen Kuechen-Timer und die Lautstaerke: Wenn der Nutzer " \
     "einen Timer stellen, abbrechen, die Restzeit erfragen oder die " \
     "Lautstaerke aendern will, rufe das passende Tool auf statt zu " \
     "antworten. Wandle Minuten in Sekunden um."
+
+// Aktive Persona (Pointer auf ein statisches String-Literal aus main.c
+// oder das Default). Pointer-Tausch ist atomar genug: gesetzt aus dem
+// LVGL-Task, gelesen im network_task — schlimmstenfalls nutzt ein
+// gerade laufender Request noch die vorherige Persona.
+static const char *s_persona = DEFAULT_PERSONA;
+
+void llm_set_system_prompt(const char *persona)
+{
+    s_persona = persona ? persona : DEFAULT_PERSONA;
+}
 
 // Antwortlaenge steuert primaer der System-Prompt (<3 Saetze);
 // das Token-Limit ist nur die Notbremse (~10 s TTS-Audio, Spec
@@ -118,7 +133,9 @@ static char *build_request(const char *user_text)
     cJSON_AddStringToObject(root, "model", config_llm_model());
 
     cJSON *messages = cJSON_AddArrayToObject(root, "messages");
-    add_message(messages, "system", SYSTEM_INSTRUCTION);
+    char system[512];
+    snprintf(system, sizeof(system), "%s%s", s_persona, TOOL_INSTRUCTIONS);
+    add_message(messages, "system", system);
     for (size_t i = 0; i < chat_history_count(); i++) {
         chat_role_t role;
         const char *text = chat_history_get(i, &role);

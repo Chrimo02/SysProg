@@ -18,3 +18,9 @@ esp_err_t afe_pipeline_init(srmodel_list_t *models);
 // afe_fetch_task holt das Flag mit dem naechsten AFE-Frame ab.
 // Ignoriert, solange schon ein Capture oder die Cloud-Pipeline laeuft.
 void afe_pipeline_request_listening(void);
+
+// Charakter-Switcher (Phase B): es laufen alle Wakenets (Mycroft/Alexa/
+// Jarvis) gleichzeitig, aber nur das Wakeword des aktiven Charakters
+// startet eine Session. idx ist der Charakter-Index (0..2), passend zur
+// character_t-Tabelle in main.c. Atomar, aus jedem Task aufrufbar.
+void afe_pipeline_set_active_character(int idx);
