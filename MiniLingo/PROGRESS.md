@@ -25,11 +25,63 @@
 | 8b | Volume per Touch-Slider + Sprach-Stufen | ✅ erledigt | 2026-06-12, User-Test bestanden (inkl. Slider-Fix + "sixty"-Aliasse, s. Session-Notiz) |
 | 8c | LLM-Wechsel Gemini → Cerebras | ✅ erledigt | 2026-06-12, E2E am Gerät verifiziert (inkl. History-Follow-up); Antwortzeit ~500 ms (Gemini: 600-1300 ms). Modell: gpt-oss-120b |
 | 9 (optional) | AEC | ⬜ offen | |
-| 10 | Function-Calling für freie Timer-Werte | ⬜ offen | **Nicht mehr optional** — User-Anforderung 2026-06-11: jede gewünschte Sekunden-/Minutenzahl muss über Gemini-Function-Calls funktionieren (MultiNet kann nur das feste 6er-Set) |
+| 10 | Function-Calling für freie Timer-Werte | ✅ erledigt | 2026-06-16, gebaut (Build grün). OpenAI-Tool-Format gegen Cerebras: set_timer/set_volume/cancel_timer/get_time_left. **User-Test am Gerät ausstehend** (s.u.) |
 
 ---
 
 ## Aktueller Stand / Nächster Schritt
+
+**Stand 2026-06-16 (Session 11): Phase 10 implementiert und gebaut
+(Build grün), User-Test am Gerät ausstehend.** Das LLM (Cerebras
+gpt-oss-120b) kann jetzt per OpenAI-Tool-Calling die echten Aktionen
+für *beliebige* Werte auslösen, die die lokalen MultiNet-Commands
+nicht abdecken. Vier Tools: `set_timer` (Sekunden), `set_volume`
+(Prozent), `cancel_timer`, `get_time_left`.
+
+Umsetzung (Single-Call, kein zweiter LLM-Round-Trip — spart Token +
+Latenz, bewusste Entscheidung passend zur Cerebras-Quota-Motivation):
+
+- `main/network/llm.h`: `llm_generate()` liefert jetzt ein
+  `llm_result_t` (Discriminated Union TEXT | TOOL_CALL) statt eines
+  reinen Text-Buffers.
+- `main/network/llm.c`: System-Prompt erweitert (Timer/Volume per Tool
+  steuern, Minuten → Sekunden umwandeln); `build_request()` hängt ein
+  `tools`-Array mit den 4 Schemas an (`tool_choice` Default `auto`);
+  `parse_reply()` prüft `choices[0].message.tool_calls` VOR `content`
+  (`function.arguments` ist im OpenAI-Format ein JSON-**String**, wird
+  in run_tool separat geparst).
+- `main/network/cloud.c`: neuer Helper `run_tool()` führt im
+  `network_task` die Aktion aus und baut eine deterministische
+  Bestätigung im Wortlaut von `format_command_bubble` (main.c) —
+  "Timer set: M:SS", "Volume: NN%", "Timer cancelled" / "No timer
+  running", "Time left: M:SS". Confirmation geht über den bestehenden
+  `CLOUD_EVT_REPLY`-Pfad (graue Assistant-Bubble), History führt den
+  Bestätigungstext als Model-Turn → Follow-ups ("zwei Minuten kürzer")
+  haben Kontext. **Kein neuer Task/keine Queue:** `kitchen_timer_start`
+  nutzt nur `esp_timer` + atomics, `volume_set` ist atomar,
+  `canned_audio_play` queued nur — alles aus dem network_task sicher
+  (eine frühere Annahme, es brauche eine Dispatch-Queue, war falsch).
+
+**Nicht geändert:** `main.c`, `state.c` (kein CHAT_ROLE_TOOL nötig),
+keine neuen Canned-Audio-Files (beliebige Werte → Text-Bubble, TTS ist
+ohnehin per Kconfig aus).
+
+**Nächster Schritt: User-Test am Gerät** (`idf.py flash monitor`):
+1. "Mycroft" → "Stell einen Timer auf sieben Minuten" → Bubble
+   "Timer set: 7:00", Countdown läuft, Alarm nach Ablauf.
+2. "Lautstärke auf 35 Prozent" → Log `volume 35%`, Bubble "Volume: 35%".
+3. "Wie lange läuft der Timer noch?" → "Time left: M:SS".
+4. "Brich den Timer ab" → "Timer cancelled".
+5. Regression: "Wie heißt die Hauptstadt von Australien?" → normale
+   Text-Antwort (kein Tool-Call).
+6. Regression lokal: "set timer five minutes" matcht weiter über
+   MultiNet (ohne Cloud).
+7. Follow-up: nach gesetztem Timer "Mach ihn zwei Minuten kürzer" →
+   set_timer mit korrigiertem Wert aus der History.
+
+Danach ist nur noch Phase 9 (AEC) offen — optional.
+
+---
 
 **Nachtrag 2026-06-12 (Session 10, Fortsetzung 2): Phase 8c —
 LLM-Wechsel Gemini → Cerebras (User stieß an Gemini-Tageslimits,
@@ -724,6 +776,26 @@ end-to-end.
   -> afe_fetch_task startet die normale Listening-Session ohne
   WakeNet. `wake_word_on_touch()` feuert denselben Listener wie das
   Wake Word.
+- **Tool-Calling im OpenAI-Format, Single-Call** (Phase 10,
+  2026-06-16): `llm_generate()` liefert `llm_result_t` (TEXT |
+  TOOL_CALL). Das LLM darf set_timer/set_volume/cancel_timer/
+  get_time_left aufrufen; `run_tool()` in `cloud.c` führt sie im
+  network_task aus und baut die Bestätigung lokal — **bewusst kein
+  zweiter OpenAI-`tool`-Message-Round-Trip** (spart Token + Latenz,
+  gleiche Motivation wie der Cerebras-Wechsel). Damit kein neuer
+  `CHAT_ROLE_TOOL`: History führt nur User/Model-Textpaare, der
+  Bestätigungstext ist der Model-Turn (Follow-ups haben Kontext).
+- **Tool-Aktionen laufen direkt im network_task** (Phase 10): keine
+  Dispatch-Queue zum afe_fetch_task nötig — `kitchen_timer_start`
+  (esp_timer + atomics), `volume_set` (atomar) und `canned_audio_play`
+  (queued nur) sind aus jedem Task sicher. `function.arguments` ist im
+  OpenAI-Format ein JSON-**String** (nicht Objekt) und wird in
+  `run_tool` separat per `cJSON_Parse` ausgewertet.
+- **Bestätigungs-Bubbles der Tool-Calls spiegeln
+  `format_command_bubble`** (main.c): "Timer set: M:SS", "Volume:
+  NN%", "Timer cancelled"/"No timer running", "Time left: M:SS" —
+  Cloud-Aktionen sehen damit aus wie die lokalen MultiNet-Commands
+  (ASCII, kein Latin-1-Font-Risiko).
 
 ---
 

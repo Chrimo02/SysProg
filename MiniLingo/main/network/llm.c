@@ -26,7 +26,11 @@ static const char *TAG = "llm";
 // (Phase 7) schrecklich. (Uebernommen aus der Gemini-Integration.)
 #define SYSTEM_INSTRUCTION \
     "Du bist ein kompakter Sprachassistent namens MiniLingo. Halte " \
-    "Antworten unter 3 Saetzen und ohne Markdown-Formatierung."
+    "Antworten unter 3 Saetzen und ohne Markdown-Formatierung. Du " \
+    "steuerst einen Kuechen-Timer und die Lautstaerke: Wenn der Nutzer " \
+    "einen Timer stellen, abbrechen, die Restzeit erfragen oder die " \
+    "Lautstaerke aendern will, rufe das passende Tool auf statt zu " \
+    "antworten. Wandle Minuten in Sekunden um."
 
 // Antwortlaenge steuert primaer der System-Prompt (<3 Saetze);
 // das Token-Limit ist nur die Notbremse (~10 s TTS-Audio, Spec
@@ -49,6 +53,59 @@ static void add_message(cJSON *messages, const char *role,
     cJSON_AddItemToArray(messages, msg);
 }
 
+// Ein Tool-Schema (OpenAI-Format) an das tools-Array haengen. params ist
+// ein vorgefertigtes JSON-Schema-Objekt (Besitz geht ans Tool ueber) oder
+// NULL fuer parameterlose Tools.
+static void add_tool(cJSON *tools, const char *name, const char *desc,
+                     cJSON *params)
+{
+    cJSON *tool = cJSON_CreateObject();
+    cJSON_AddStringToObject(tool, "type", "function");
+    cJSON *func = cJSON_AddObjectToObject(tool, "function");
+    cJSON_AddStringToObject(func, "name", name);
+    cJSON_AddStringToObject(func, "description", desc);
+    if (!params) {
+        params = cJSON_CreateObject();
+        cJSON_AddStringToObject(params, "type", "object");
+        cJSON_AddObjectToObject(params, "properties");
+    }
+    cJSON_AddItemToObject(func, "parameters", params);
+    cJSON_AddItemToArray(tools, tool);
+}
+
+// Schema-Objekt fuer ein Tool mit genau einem Integer-Pflichtparameter.
+static cJSON *int_param_schema(const char *param, const char *param_desc)
+{
+    cJSON *params = cJSON_CreateObject();
+    cJSON_AddStringToObject(params, "type", "object");
+    cJSON *props = cJSON_AddObjectToObject(params, "properties");
+    cJSON *p = cJSON_AddObjectToObject(props, param);
+    cJSON_AddStringToObject(p, "type", "integer");
+    cJSON_AddStringToObject(p, "description", param_desc);
+    cJSON *required = cJSON_AddArrayToObject(params, "required");
+    cJSON_AddItemToArray(required, cJSON_CreateString(param));
+    return params;
+}
+
+// Tool-Definitionen (Phase 10): freie Timer-/Volume-Werte, die die
+// lokalen MultiNet-Commands nicht abdecken. Die Ausfuehrung passiert in
+// cloud.c (run_tool), nicht hier.
+static void add_tools(cJSON *root)
+{
+    cJSON *tools = cJSON_AddArrayToObject(root, "tools");
+    add_tool(tools, "set_timer",
+             "Stellt einen Kuechen-Timer auf die angegebene Dauer.",
+             int_param_schema("seconds",
+                              "Dauer in Sekunden (1 bis 86400)."));
+    add_tool(tools, "set_volume",
+             "Setzt die Lautstaerke auf den angegebenen Prozentwert.",
+             int_param_schema("percent", "Lautstaerke 0 bis 100."));
+    add_tool(tools, "cancel_timer",
+             "Bricht den laufenden Kuechen-Timer ab.", NULL);
+    add_tool(tools, "get_time_left",
+             "Gibt die Restzeit des laufenden Timers zurueck.", NULL);
+}
+
 // Request-Body (OpenAI-Chat-Format); Rueckgabe via cJSON_free().
 static char *build_request(const char *user_text)
 {
@@ -69,6 +126,8 @@ static char *build_request(const char *user_text)
     }
     add_message(messages, "user", user_text);
 
+    add_tools(root);
+
     cJSON_AddNumberToObject(root, "max_completion_tokens",
                             MAX_COMPLETION_TOKENS);
     cJSON_AddNumberToObject(root, "temperature", TEMPERATURE);
@@ -83,8 +142,7 @@ static char *build_request(const char *user_text)
     return body;
 }
 
-static esp_err_t parse_reply(const char *json, char *reply,
-                             size_t reply_len)
+static esp_err_t parse_reply(const char *json, llm_result_t *out)
 {
     cJSON *root = cJSON_Parse(json);
     if (!root) {
@@ -98,26 +156,51 @@ static esp_err_t parse_reply(const char *json, char *reply,
     const cJSON *msg = cJSON_GetObjectItem(
         cJSON_GetArrayItem(cJSON_GetObjectItem(root, "choices"), 0),
         "message");
-    const cJSON *content = cJSON_GetObjectItem(msg, "content");
-    if (cJSON_IsString(content)) {
-        snprintf(reply, reply_len, "%s", content->valuestring);
-        size_t len = strlen(reply);
-        while (len > 0 && isspace((unsigned char)reply[len - 1])) {
-            reply[--len] = '\0';
-        }
-        if (len > 0) {
+
+    // Tool-Call hat Vorrang: bei einem set_timer/... ist content leer.
+    const cJSON *tool_calls = cJSON_GetObjectItem(msg, "tool_calls");
+    const cJSON *call = cJSON_GetArrayItem(tool_calls, 0);
+    if (call) {
+        const cJSON *func = cJSON_GetObjectItem(call, "function");
+        const cJSON *name = cJSON_GetObjectItem(func, "name");
+        const cJSON *args = cJSON_GetObjectItem(func, "arguments");
+        if (cJSON_IsString(name)) {
+            out->type = LLM_RESULT_TOOL_CALL;
+            snprintf(out->tool_name, sizeof(out->tool_name), "%s",
+                     name->valuestring);
+            // arguments ist im OpenAI-Format ein JSON-String (kann bei
+            // parameterlosen Tools fehlen) — als Text uebernehmen,
+            // run_tool parst ihn separat.
+            snprintf(out->tool_args, sizeof(out->tool_args), "%s",
+                     cJSON_IsString(args) ? args->valuestring : "{}");
             ret = ESP_OK;
         }
     }
+
     if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "no text in response: %.256s", json);
+        const cJSON *content = cJSON_GetObjectItem(msg, "content");
+        if (cJSON_IsString(content)) {
+            out->type = LLM_RESULT_TEXT;
+            snprintf(out->text, sizeof(out->text), "%s",
+                     content->valuestring);
+            size_t len = strlen(out->text);
+            while (len > 0 && isspace((unsigned char)out->text[len - 1])) {
+                out->text[--len] = '\0';
+            }
+            if (len > 0) {
+                ret = ESP_OK;
+            }
+        }
+    }
+
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "no text/tool in response: %.256s", json);
     }
     cJSON_Delete(root);
     return ret;
 }
 
-static esp_err_t generate_once(const char *user_text, char *reply,
-                               size_t reply_len)
+static esp_err_t generate_once(const char *user_text, llm_result_t *out)
 {
     if (strlen(CONFIG_CEREBRAS_API_KEY) == 0) {
         ESP_LOGE(TAG, "CONFIG_CEREBRAS_API_KEY not set (menuconfig)");
@@ -183,23 +266,27 @@ static esp_err_t generate_once(const char *user_text, char *reply,
                                                 : ESP_ERR_INVALID_RESPONSE;
     }
 
-    err = parse_reply(resp, reply, reply_len);
+    err = parse_reply(resp, out);
     if (err == ESP_OK) {
-        ESP_LOGI(TAG, "reply in %u ms: \"%s\"",
-                 (unsigned)(esp_log_timestamp() - t0), reply);
+        unsigned ms = (unsigned)(esp_log_timestamp() - t0);
+        if (out->type == LLM_RESULT_TOOL_CALL) {
+            ESP_LOGI(TAG, "tool call in %u ms: %s(%s)", ms,
+                     out->tool_name, out->tool_args);
+        } else {
+            ESP_LOGI(TAG, "reply in %u ms: \"%s\"", ms, out->text);
+        }
     }
     return err;
 }
 
-esp_err_t llm_generate(const char *user_text, char *reply,
-                       size_t reply_len)
+esp_err_t llm_generate(const char *user_text, llm_result_t *out)
 {
     esp_err_t err = ESP_FAIL;
     for (int attempt = 0; attempt < HTTP_MAX_ATTEMPTS; attempt++) {
         if (attempt > 0) {
             http_backoff_delay(attempt, TAG);
         }
-        err = generate_once(user_text, reply, reply_len);
+        err = generate_once(user_text, out);
         if (!http_err_is_transient(err)) {
             break;
         }

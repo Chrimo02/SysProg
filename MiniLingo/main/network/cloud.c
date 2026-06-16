@@ -9,10 +9,13 @@
 #include "freertos/queue.h"
 #include "freertos/task.h"
 
+#include "cJSON.h"
 #include "esp_log.h"
 #include "sdkconfig.h"
 
 #include "local/canned_audio.h"
+#include "local/timer.h"
+#include "local/volume.h"
 #include "network/wifi.h"
 #include "state.h"
 #include "whisper.h"
@@ -69,11 +72,58 @@ static void speak_reply(const char *reply)
 }
 #endif // CONFIG_TTS_SPEAK_REPLIES
 
+static int arg_int(const cJSON *args, const char *key, int fallback)
+{
+    const cJSON *item = cJSON_GetObjectItem(args, key);
+    return cJSON_IsNumber(item) ? item->valueint : fallback;
+}
+
+// Tool-Call ausfuehren (Phase 10) und eine deterministische Bestaetigung
+// formulieren — kein zweiter LLM-Call. Laeuft im network_task; die
+// Aktionen sind aus jedem Task sicher: kitchen_timer_* nutzt esp_timer +
+// atomics, volume_set ist atomar. Wortlaut wie format_command_bubble in
+// main.c, damit Cloud- und lokale Aktionen gleich aussehen.
+static void run_tool(const llm_result_t *r, char *confirm, size_t n)
+{
+    cJSON *args = cJSON_Parse(r->tool_args);  // NULL bei "{}"/Fehler: ok
+
+    if (strcmp(r->tool_name, "set_timer") == 0) {
+        int seconds = arg_int(args, "seconds", 0);
+        if (seconds < 1) {
+            seconds = 1;
+        } else if (seconds > 86400) {
+            seconds = 86400;
+        }
+        kitchen_timer_start(seconds);
+        snprintf(confirm, n, "Timer set: %d:%02d", seconds / 60,
+                 seconds % 60);
+    } else if (strcmp(r->tool_name, "set_volume") == 0) {
+        volume_set(arg_int(args, "percent", volume_get()));  // clampt selbst
+        snprintf(confirm, n, "Volume: %d%%", volume_get());
+    } else if (strcmp(r->tool_name, "cancel_timer") == 0) {
+        snprintf(confirm, n, kitchen_timer_cancel() ? "Timer cancelled"
+                                                    : "No timer running");
+    } else if (strcmp(r->tool_name, "get_time_left") == 0) {
+        int left = kitchen_timer_remaining_s();
+        if (left >= 0) {
+            snprintf(confirm, n, "Time left: %d:%02d", left / 60, left % 60);
+        } else {
+            snprintf(confirm, n, "No timer running");
+        }
+    } else {
+        ESP_LOGW(TAG, "unknown tool: %s", r->tool_name);
+        snprintf(confirm, n, "Unknown action");
+    }
+
+    cJSON_Delete(args);
+}
+
 static void network_task(void *arg)
 {
     cloud_job_t job;
     static char text[TRANSCRIPT_MAX];
-    static char reply[REPLY_MAX];
+    static llm_result_t result;
+    static char confirm[REPLY_MAX];
 
     while (1) {
         xQueueReceive(s_queue, &job, portMAX_DELAY);
@@ -88,18 +138,28 @@ static void network_task(void *arg)
             s_cb(CLOUD_EVT_TRANSCRIPT, text);
             // LLM direkt im Anschluss — die Whisper-Verbindung ist
             // hier schon geschlossen (TLS strikt sequenziell).
-            if (llm_generate(text, reply, sizeof(reply)) == ESP_OK) {
+            if (llm_generate(text, &result) != ESP_OK) {
+                s_cb(CLOUD_EVT_ERROR, "Assistant failed");
+            } else if (result.type == LLM_RESULT_TOOL_CALL) {
+                // Phase 10: Tool lokal ausfuehren, Bestaetigung als
+                // Reply-Bubble. History fuehrt den Bestaetigungstext als
+                // Model-Turn (kein OpenAI-tool-Roundtrip) — Follow-ups
+                // ("zwei Minuten kuerzer") haben damit Kontext.
+                run_tool(&result, confirm, sizeof(confirm));
+                chat_history_push(CHAT_ROLE_USER, text);
+                chat_history_push(CHAT_ROLE_MODEL, confirm);
+                s_cb(CLOUD_EVT_REPLY, confirm);
+                s_cb(CLOUD_EVT_DONE, "");
+            } else {
                 // History erst bei Erfolg fortschreiben: sie enthaelt
                 // nur vollstaendige User/Model-Paare.
                 chat_history_push(CHAT_ROLE_USER, text);
-                chat_history_push(CHAT_ROLE_MODEL, reply);
-                s_cb(CLOUD_EVT_REPLY, reply);
+                chat_history_push(CHAT_ROLE_MODEL, result.text);
+                s_cb(CLOUD_EVT_REPLY, result.text);
 #if CONFIG_TTS_SPEAK_REPLIES
-                speak_reply(reply);
+                speak_reply(result.text);
 #endif
                 s_cb(CLOUD_EVT_DONE, "");
-            } else {
-                s_cb(CLOUD_EVT_ERROR, "Assistant failed");
             }
         }
 
