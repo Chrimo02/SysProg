@@ -25,28 +25,20 @@ static atomic_int_least32_t s_gain_q15 = AUDIO_OUT_GAIN_UNITY;
 
 esp_err_t audio_out_init(void)
 {
-    // Groesserer DMA-Puffer als Jitter-Polster fuer die gestreamte
-    // TTS-Wiedergabe (Default 6x240 = 60 ms ist zu knapp -> abgehackt).
-    // 8x1024 = 8192 Frames ≈ 341 ms @24 kHz, ~16 KB internes DMA-RAM.
-    // WICHTIG: faellt bei Alloc-Fehler auf den Default zurueck, statt den
-    // Boot per ESP_ERROR_CHECK abzubrechen — neben esp-sr/WiFi/TLS ist
-    // das interne DMA-RAM knapp (24 KB scheiterten -> Boot-Loop).
+    // Default-DMA-Puffer (6x240 ≈ 60 ms). Groesser zu machen bringt zwar
+    // ein Jitter-Polster fuers TTS-Streaming, frisst aber internen RAM:
+    // 16 KB liessen den TLS-Hardware-AES zur Laufzeit verhungern
+    // ("esp-aes: Failed to allocate memory" -> Cloud-Uploads scheitern),
+    // 24 KB scheiterten schon beim Boot. Der Jitterpuffer gehoert deshalb
+    // in den PSRAM (canned_audio-Ringpuffer), nicht ins I2S-DMA.
     i2s_chan_config_t chan_cfg =
         I2S_CHANNEL_DEFAULT_CONFIG(I2S_NUM_1, I2S_ROLE_MASTER);
     // Ohne auto_clear loopt nach dem letzten i2s_channel_write der
     // DMA-Buffer-Inhalt endlos weiter -> "Knattern". auto_clear nullt
     // gesendete Deskriptoren.
     chan_cfg.auto_clear = true;
-    chan_cfg.dma_desc_num = 8;
-    chan_cfg.dma_frame_num = 1024;
-    if (i2s_new_channel(&chan_cfg, &s_tx_chan, NULL) != ESP_OK) {
-        ESP_LOGW(TAG, "large DMA alloc failed, using default buffers");
-        chan_cfg = (i2s_chan_config_t)
-            I2S_CHANNEL_DEFAULT_CONFIG(I2S_NUM_1, I2S_ROLE_MASTER);
-        chan_cfg.auto_clear = true;
-        ESP_RETURN_ON_ERROR(i2s_new_channel(&chan_cfg, &s_tx_chan, NULL),
-                            TAG, "i2s_new_channel");
-    }
+    ESP_RETURN_ON_ERROR(i2s_new_channel(&chan_cfg, &s_tx_chan, NULL),
+                        TAG, "i2s_new_channel");
 
     i2s_std_config_t std_cfg = {
         .clk_cfg = I2S_STD_CLK_DEFAULT_CONFIG(DEFAULT_RATE),
