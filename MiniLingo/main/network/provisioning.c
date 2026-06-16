@@ -172,15 +172,20 @@ static void start_softap(void)
             .ssid = AP_SSID,
             .ssid_len = strlen(AP_SSID),
             .password = AP_PASS,
+            .channel = 1,
             .max_connection = AP_MAX_CONN,
             .authmode = WIFI_AUTH_WPA2_PSK,
         },
     };
-    // STA bleibt aktiv (APSTA), damit eine bestehende Verbindung nicht
-    // abreißt; der AP kommt zusätzlich dazu.
-    ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_APSTA));
+    // Reiner AP-Modus (STA aus): der ESP hat nur EIN Funkmodul — bei
+    // aktiver Heim-WLAN-Verbindung (APSTA) muss der AP auf dessen Kanal
+    // und kickt den Setup-Client (join/leave reason 1). Fuer das Setup
+    // braucht der AP das Funkmodul allein; nach dem Speichern rebootet
+    // das Geraet ohnehin und die STA-Verbindung kommt wieder.
+    ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_AP));
     ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_AP, &ap_cfg));
-    ESP_LOGI(TAG, "SoftAP \"%s\" up — http://192.168.4.1", AP_SSID);
+    ESP_LOGI(TAG, "SoftAP \"%s\" up (AP-only, ch1) — http://192.168.4.1",
+             AP_SSID);
 }
 
 static void start_httpd(void)
