@@ -36,7 +36,9 @@
 #include "local/canned_audio.h"
 #include "local/timer.h"
 #include "local/volume.h"
+#include "config.h"
 #include "network/cloud.h"
+#include "network/provisioning.h"
 #include "network/wifi.h"
 #include "speech/afe_pipeline.h"
 #include "speech/commands.h"
@@ -144,6 +146,15 @@ static void on_tts_button_clicked(void)
     cloud_set_tts_enabled(on);
     ui_tts_button_set_enabled(on);
     ui_chat_add_local_bubble(on ? "Voice replies on" : "Voice replies off");
+}
+
+static void on_wifi_clicked(void)
+{
+    // LVGL-Task-Kontext. Setup-Portal öffnen (SoftAP + Web-Formular)
+    // und dem Nutzer Hotspot + URL anzeigen.
+    provisioning_start();
+    ui_chat_add_local_bubble("Setup-WLAN: MiniLingo-Setup (PW minilingo)");
+    ui_chat_add_local_bubble("Browser: http://192.168.4.1");
 }
 
 static void on_wifi_status(bool connected)
@@ -519,6 +530,10 @@ void app_main(void)
     }
     ESP_ERROR_CHECK(err);
 
+    // Laufzeit-Config aus NVS laden (SSID/Keys/Modelle); fällt auf die
+    // Kconfig-Defaults zurück, wenn nichts provisioniert ist.
+    ESP_ERROR_CHECK(config_init());
+
     lv_init();
     lv_tick_set_cb(lvgl_tick_get_cb);
 
@@ -528,6 +543,7 @@ void app_main(void)
     ui_init();
     ui_mic_button_set_click_cb(on_mic_button_clicked);
     ui_status_bar_set_volume_changed_cb(on_volume_slider_changed);
+    ui_status_bar_set_wifi_clicked_cb(on_wifi_clicked);
     ui_status_bar_set_state_text(IDLE_STATE_TEXT);
     ui_status_bar_set_wifi_connected(false);
     // TTS-Toggle: Startzustand aus demselben Kconfig wie cloud.c (vor
@@ -543,6 +559,13 @@ void app_main(void)
     xTaskCreatePinnedToCore(lvgl_task, "lvgl", 8192, NULL, 4, NULL, 0);
 
     ESP_ERROR_CHECK(wifi_init(on_wifi_status));
+
+    // Erststart-Komfort: ist keine SSID provisioniert, direkt das
+    // Setup-Portal öffnen (Tap aufs WiFi-Icon tut dasselbe).
+    if (config_wifi_unprovisioned()) {
+        ESP_LOGW(TAG, "no WiFi provisioned — starting setup portal");
+        provisioning_start();
+    }
 
     // Cloud-Pipeline (Phase 5/6): network_task vor der AFE-Pipeline
     // starten — der afe_fetch_task ruft cloud_submit/cloud_is_busy.

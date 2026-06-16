@@ -13,6 +13,7 @@
 #include "mbedtls/base64.h"
 #include "sdkconfig.h"
 
+#include "config.h"
 #include "http_util.h"
 #include "tts.h"
 
@@ -68,7 +69,7 @@ static char *build_request(const char *text)
         cJSON_AddObjectToObject(
             cJSON_AddObjectToObject(gen, "speechConfig"), "voiceConfig"),
         "prebuiltVoiceConfig");
-    cJSON_AddStringToObject(voice, "voiceName", CONFIG_GEMINI_VOICE_NAME);
+    cJSON_AddStringToObject(voice, "voiceName", config_gemini_voice());
 
     char *body = cJSON_PrintUnformatted(root);
     cJSON_Delete(root);
@@ -130,8 +131,8 @@ static esp_err_t parse_audio(const char *json, size_t *samples,
 static esp_err_t synthesize_once(const char *text, const int16_t **pcm,
                                  size_t *samples, uint32_t *sample_rate)
 {
-    if (strlen(CONFIG_GEMINI_API_KEY) == 0) {
-        ESP_LOGE(TAG, "CONFIG_GEMINI_API_KEY not set (menuconfig)");
+    if (strlen(config_gemini_key()) == 0) {
+        ESP_LOGE(TAG, "Gemini API key not set (Setup-Portal/menuconfig)");
         return ESP_ERR_INVALID_STATE;
     }
 
@@ -156,7 +157,7 @@ static esp_err_t synthesize_once(const char *text, const int16_t **pcm,
     }
 
     esp_http_client_set_header(client, "x-goog-api-key",
-                               CONFIG_GEMINI_API_KEY);
+                               config_gemini_key());
     esp_http_client_set_header(client, "Content-Type",
                                "application/json");
 

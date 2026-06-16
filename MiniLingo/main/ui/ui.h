@@ -37,6 +37,10 @@ void ui_status_bar_set_volume(int percent);
 typedef void (*ui_volume_changed_cb_t)(int percent);
 void ui_status_bar_set_volume_changed_cb(ui_volume_changed_cb_t cb);
 
+// Klick aufs WiFi-Icon (Status-Bar) -> Setup-Portal öffnen.
+typedef void (*ui_wifi_clicked_cb_t)(void);
+void ui_status_bar_set_wifi_clicked_cb(ui_wifi_clicked_cb_t cb);
+
 // Mic-Button (ui_mic_button.c)
 void ui_mic_button_set_state(ui_mic_state_t state);
 void ui_mic_button_set_click_cb(ui_mic_click_cb_t cb);

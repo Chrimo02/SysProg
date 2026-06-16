@@ -11,6 +11,7 @@
 #include "esp_log.h"
 #include "sdkconfig.h"
 
+#include "config.h"
 #include "http_util.h"
 #include "whisper.h"
 
@@ -77,14 +78,14 @@ static esp_err_t parse_transcript(const char *json, char *text,
 static esp_err_t transcribe_once(const uint8_t *wav, size_t wav_bytes,
                                  char *text, size_t text_len)
 {
-    if (strlen(CONFIG_GROQ_API_KEY) == 0) {
-        ESP_LOGE(TAG, "CONFIG_GROQ_API_KEY not set (menuconfig)");
+    if (strlen(config_groq_key()) == 0) {
+        ESP_LOGE(TAG, "Groq API key not set (Setup-Portal/menuconfig)");
         return ESP_ERR_INVALID_STATE;
     }
 
     char prologue[512];
     int prologue_len = snprintf(prologue, sizeof(prologue), PART_FMT,
-                                CONFIG_WHISPER_LANGUAGE);
+                                config_whisper_language());
     if (prologue_len <= 0 || prologue_len >= (int)sizeof(prologue)) {
         return ESP_FAIL;
     }
@@ -100,8 +101,9 @@ static esp_err_t transcribe_once(const uint8_t *wav, size_t wav_bytes,
         return ESP_FAIL;
     }
 
-    esp_http_client_set_header(client, "Authorization",
-                               "Bearer " CONFIG_GROQ_API_KEY);
+    char auth[160];
+    snprintf(auth, sizeof(auth), "Bearer %s", config_groq_key());
+    esp_http_client_set_header(client, "Authorization", auth);
     esp_http_client_set_header(client, "Content-Type",
                                "multipart/form-data; boundary=" BOUNDARY);
 

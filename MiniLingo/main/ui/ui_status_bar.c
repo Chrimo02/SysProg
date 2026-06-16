@@ -18,6 +18,14 @@ static lv_obj_t *s_volume_slider;
 static lv_timer_t *s_volume_hide_timer;
 static ui_volume_changed_cb_t s_volume_cb;
 static int s_volume_percent;
+static ui_wifi_clicked_cb_t s_wifi_cb;
+
+static void wifi_label_click_cb(lv_event_t *e)
+{
+    if (s_wifi_cb) {
+        s_wifi_cb();
+    }
+}
 
 static void volume_panel_hide(void)
 {
@@ -91,6 +99,11 @@ void ui_status_bar_create(lv_obj_t *parent)
     s_wifi_label = lv_label_create(bar);
     lv_label_set_text(s_wifi_label, LV_SYMBOL_WIFI);
     lv_obj_align(s_wifi_label, LV_ALIGN_LEFT_MID, 0, 0);
+    // Klick aufs WiFi-Icon öffnet das Setup-Portal (Provisioning).
+    lv_obj_add_flag(s_wifi_label, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_ext_click_area(s_wifi_label, 12);
+    lv_obj_add_event_cb(s_wifi_label, wifi_label_click_cb,
+                        LV_EVENT_CLICKED, NULL);
 
     s_state_label = lv_label_create(bar);
     lv_label_set_text(s_state_label, "");
@@ -159,4 +172,9 @@ void ui_status_bar_set_volume(int percent)
 void ui_status_bar_set_volume_changed_cb(ui_volume_changed_cb_t cb)
 {
     s_volume_cb = cb;
+}
+
+void ui_status_bar_set_wifi_clicked_cb(ui_wifi_clicked_cb_t cb)
+{
+    s_wifi_cb = cb;
 }

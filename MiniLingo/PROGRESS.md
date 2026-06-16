@@ -31,6 +31,45 @@
 
 ## Aktueller Stand / Nächster Schritt
 
+**Stand 2026-06-16 (Session 12): Phase A — WLAN-Setup-Portal
+(Runtime-Provisioning) implementiert, gebaut, geflasht. User-Test
+ausstehend.** WLAN-Zugang und API-Keys lassen sich jetzt ohne USB/PC
+ändern.
+
+- **Neues `main/config.c` + `config.h`**: zentrale Laufzeit-Config aus
+  NVS (Namespace `minilingo`). `config_init()` (in `app_main` direkt
+  nach `nvs_flash_init`) lädt SSID/Passwort/Groq/Cerebras/Gemini-Keys +
+  LLM-Modell/Whisper-Sprache/Gemini-Voice/Charakter-Index in einen
+  Cache; fehlt ein NVS-Key, gilt der bisherige `CONFIG_*`-Default
+  (ohne Provisioning ändert sich nichts). Getter ersetzen die Makros,
+  Setter (`config_set_str`) schreiben NVS.
+- **Konsumenten umgestellt** (`wifi.c`, `whisper.c`, `llm.c`, `tts.c`):
+  lesen die `config_*()`-Getter statt der `CONFIG_*`-Makros. Die
+  Auth-Header werden jetzt zur Laufzeit per `snprintf("Bearer %s", …)`
+  gebaut (vorher String-Literal-Konkatenation).
+- **Neues `main/network/provisioning.c` + `.h`**: Tap aufs WiFi-Icon
+  (Status-Bar) → `provisioning_start()` spannt SoftAP `MiniLingo-Setup`
+  (WPA2, PW `minilingo`) auf (APSTA, STA bleibt parallel) und serviert
+  per `esp_http_server` ein Formular auf `http://192.168.4.1`.
+  `POST /save` schreibt die nicht-leeren Felder ins NVS und rebootet
+  (leere Geheimfelder behalten den alten Wert). Auto-Start beim Boot
+  nur, wenn die SSID noch der Platzhalter `"yourwifi"` ist.
+- UI: WiFi-Label klickbar (`ui_status_bar`), neuer Callback
+  `ui_status_bar_set_wifi_clicked_cb`; `main.c` zeigt beim Öffnen zwei
+  Hinweis-Bubbles (Hotspot-Name + URL).
+
+**Build grün** (App 20% frei). **User-Test ausstehend:** WiFi-Icon
+tippen → Bubbles, Handy mit `MiniLingo-Setup` verbinden →
+`http://192.168.4.1` → SSID/Key ändern → Reboot → neues Netz. Beim
+Build trat ein verwaister `managed_components/espressif__esp-sr/model/
+build`-Ordner auf (CMake-`register_component`-Fehler) — gelöscht, dann
+sauber gebaut (Merke für künftige Builds).
+
+**Nächster Schritt:** Phase B — Charakter-/Wakeword-Switcher
+(Mycroft/Alexa/Jarvis, Live-Wechsel, Persona-Prompts). Plan liegt vor.
+
+---
+
 **Nachtrag 2026-06-16 (Session 11, Fortsetzung): TTS-Toggle-Button
 (User-Wunsch).** Kleiner Button unten rechts im Mic-Bereich
 (`main/ui/ui_tts_button.c`, "TTS"-Label, grün = an / grau = aus)
@@ -812,6 +851,14 @@ end-to-end.
   -> afe_fetch_task startet die normale Listening-Session ohne
   WakeNet. `wake_word_on_touch()` feuert denselben Listener wie das
   Wake Word.
+- **Config kommt aus NVS, nicht mehr nur aus Kconfig** (Session 12,
+  `main/config.c`): SSID/Passwort/API-Keys/Modelle werden beim Boot aus
+  dem NVS-Namespace `minilingo` geladen, Fallback ist der jeweilige
+  `CONFIG_*`-Default. `wifi.c`/`whisper.c`/`llm.c`/`tts.c` nutzen die
+  `config_*()`-Getter. Geschrieben wird per WLAN-Setup-Portal
+  (`network/provisioning.c`, SoftAP + esp_http_server) — Keys liegen
+  klartext im NVS (wie zuvor im sdkconfig). Auto-Portal beim Boot nur
+  bei SSID-Platzhalter `"yourwifi"`.
 - **Tool-Calling im OpenAI-Format, Single-Call** (Phase 10,
   2026-06-16): `llm_generate()` liefert `llm_result_t` (TEXT |
   TOOL_CALL). Das LLM darf set_timer/set_volume/cancel_timer/

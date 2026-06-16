@@ -14,6 +14,7 @@
 #include "esp_wifi.h"
 #include "sdkconfig.h"
 
+#include "config.h"
 #include "wifi.h"
 
 #define WIFI_RECONNECT_DELAY_MS 5000
@@ -79,18 +80,22 @@ esp_err_t wifi_init(wifi_status_cb_t status_cb)
     ESP_ERROR_CHECK(esp_event_handler_instance_register(
         IP_EVENT, IP_EVENT_STA_GOT_IP, &wifi_event_handler, NULL, NULL));
 
+    // SSID/Passwort kommen seit dem Provisioning aus dem NVS-Cache
+    // (config.c), nicht mehr aus den Kconfig-Makros.
     wifi_config_t wifi_cfg = {
         .sta = {
-            .ssid = CONFIG_WIFI_SSID,
-            .password = CONFIG_WIFI_PASSWORD,
             .threshold.authmode = WIFI_AUTH_WPA2_PSK,
         },
     };
+    strlcpy((char *)wifi_cfg.sta.ssid, config_wifi_ssid(),
+            sizeof(wifi_cfg.sta.ssid));
+    strlcpy((char *)wifi_cfg.sta.password, config_wifi_password(),
+            sizeof(wifi_cfg.sta.password));
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
     ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &wifi_cfg));
     ESP_ERROR_CHECK(esp_wifi_start());
 
-    ESP_LOGI(TAG, "STA started, connecting to \"%s\"", CONFIG_WIFI_SSID);
+    ESP_LOGI(TAG, "STA started, connecting to \"%s\"", config_wifi_ssid());
     return ESP_OK;
 }
 

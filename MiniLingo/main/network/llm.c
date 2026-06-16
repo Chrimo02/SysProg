@@ -14,6 +14,7 @@
 #include "esp_log.h"
 #include "sdkconfig.h"
 
+#include "config.h"
 #include "http_util.h"
 #include "state.h"
 #include "llm.h"
@@ -114,7 +115,7 @@ static char *build_request(const char *user_text)
         return NULL;
     }
 
-    cJSON_AddStringToObject(root, "model", CONFIG_LLM_MODEL);
+    cJSON_AddStringToObject(root, "model", config_llm_model());
 
     cJSON *messages = cJSON_AddArrayToObject(root, "messages");
     add_message(messages, "system", SYSTEM_INSTRUCTION);
@@ -202,8 +203,8 @@ static esp_err_t parse_reply(const char *json, llm_result_t *out)
 
 static esp_err_t generate_once(const char *user_text, llm_result_t *out)
 {
-    if (strlen(CONFIG_CEREBRAS_API_KEY) == 0) {
-        ESP_LOGE(TAG, "CONFIG_CEREBRAS_API_KEY not set (menuconfig)");
+    if (strlen(config_cerebras_key()) == 0) {
+        ESP_LOGE(TAG, "Cerebras API key not set (Setup-Portal/menuconfig)");
         return ESP_ERR_INVALID_STATE;
     }
 
@@ -224,8 +225,9 @@ static esp_err_t generate_once(const char *user_text, llm_result_t *out)
         return ESP_FAIL;
     }
 
-    esp_http_client_set_header(client, "Authorization",
-                               "Bearer " CONFIG_CEREBRAS_API_KEY);
+    char auth[160];
+    snprintf(auth, sizeof(auth), "Bearer %s", config_cerebras_key());
+    esp_http_client_set_header(client, "Authorization", auth);
     esp_http_client_set_header(client, "Content-Type",
                                "application/json");
 

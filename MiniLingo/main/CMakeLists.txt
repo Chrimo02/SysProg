@@ -4,6 +4,7 @@
 idf_component_register(
     SRCS "main.c"
          "state.c"
+         "config.c"
          "drivers/display.c"
          "drivers/touch.c"
          "drivers/audio_in.c"
@@ -12,6 +13,7 @@ idf_component_register(
          "local/timer.c"
          "local/volume.c"
          "network/wifi.c"
+         "network/provisioning.c"
          "network/cloud.c"
          "network/http_util.c"
          "network/whisper.c"
