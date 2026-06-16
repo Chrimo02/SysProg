@@ -43,14 +43,3 @@ esp_err_t canned_audio_play_pcm(const int16_t *pcm, size_t samples,
 // Bricht die laufende Wiedergabe ab und leert die Queue ("stop") —
 // seit Phase 7 auch die TTS-PCM-Wiedergabe.
 void canned_audio_stop(void);
-
-// Streaming-Sink fuer die TTS-Wiedergabe (geraeteseitiges Streaming):
-// der network_task dekodiert das Gemini-Audio chunkweise und schreibt es
-// direkt ans I2S, statt erst den ganzen PCM-Buffer zu puffern. Waehrend
-// SPEAKING spielt der Player-Task nichts, daher ist der Aufrufer der
-// einzige I2S-Schreiber. "stop" (canned_audio_stop) laesst den naechsten
-// _write abbrechen.
-void canned_audio_stream_begin(uint32_t rate);
-// Schreibt einen PCM-Chunk (16 bit LE mono). Veraendert den Buffer
-// (Gain in-place). ESP_OK, oder ESP_ERR_INVALID_STATE bei "stop".
-esp_err_t canned_audio_stream_write(int16_t *pcm, size_t samples);

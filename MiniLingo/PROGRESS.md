@@ -31,52 +31,37 @@
 
 ## Aktueller Stand / Nächster Schritt
 
-**Stand 2026-06-16 (Session 13): TTS-Latenz — geräteseitiges Streaming
-implementiert, gebaut (grün). Flash/Hörtest ausstehend (Board war beim
-Abschluss nicht am USB).** Behebt zugleich „Cloud: Speech failed" bei
-langen Antworten.
+**Stand 2026-06-16 (Session 13): TTS-Streaming-Versuch wieder
+zurückgenommen — TTS ist wie vor Session 13 (komplett laden, dann
+abspielen, flüssig).** Der AP-only-Provisioning-Fix (s.u.) bleibt.
 
-- **Problem:** `tts.c` lud bisher die KOMPLETTE Gemini-Antwort
-  (`http_read_body` → ganzes Base64 dekodieren → `canned_audio_play_pcm`),
-  bevor der erste Ton kam. Folgen: hohe Latenz (Download 0,5–1,5 MB über
-  TLS liegt VOR der Wiedergabe) und „Speech failed", sobald die Antwort
-  die festen Puffer (`RESPONSE_MAX` 1,5 MB / `PCM_MAX` 1 MB ≈ 21 s)
-  übersteigt.
-- **Lösung:** Body chunkweise lesen (`esp_http_client_read`), das
-  `inlineData.data`-Base64 mit einem kleinen Stream-Parser
-  (`feed_byte`/`flush_batch`) inkrementell dekodieren und die PCM-Chunks
-  sofort ans I2S geben. Neue API `tts_synthesize_stream(text, cb, ctx)`
-  mit Chunk-Callback; die 1,5-MB/1-MB-PSRAM-Puffer entfallen (nur noch
-  ~7 KB Scratch). Rate fix 24 kHz (mimeType-Parsing entfällt).
-- **Wiedergabe-Sink** (`canned_audio_stream_begin`/`_write`): schreibt
-  direkt ans I2S (Gain in-place), prüft das Stop-Flag → „stop" bricht ab.
-  Player-Task ist während SPEAKING idle, daher einziger Schreiber.
-- **`cloud.c`**: `speak_reply` nutzt `tts_synthesize_stream` mit
-  `on_tts_pcm`; SPEAKING wird erst beim ersten echten Audio gesetzt;
-  Retry nur, solange kein Chunk lief; Fehler nur melden, wenn noch kein
-  Ton kam (Stop mitten drin ist kein Fehler).
-- **Effekt:** Wiedergabe startet ~beim ersten Chunk → der Download-Anteil
-  (~2–5 s) fällt aus der Latenz; lange Antworten spielen vollständig.
-  **Grenze:** Gemini `generateContent` ist nicht streamend — die Server-
-  Generierung (~2–4 s) bleibt; nur Live-API (WebSocket) oder ein
-  streamender Anbieter würden auch die überlappen.
+**Was versucht und verworfen wurde:** Geräteseitiges Streaming der
+Gemini-TTS (Body chunkweise dekodieren → sofort ans I2S) sollte die
+Latenz senken und „Speech failed" bei langen Antworten beheben. Es lief
+grundsätzlich (nach einem Whitespace-Fix im Stream-Parser: Gemini
+liefert `"data": "…"` pretty-printed), war aber **abgehackt** (Buffer-
+Underrun: das I2S-DMA läuft zwischen den TLS-Chunks leer). Der Versuch,
+das per größerem I2S-DMA-Puffer zu glätten, schlug zweifach fehl:
+- 24 KB DMA → Boot-Loop (Alloc scheitert beim Boot, `ESP_ERROR_CHECK`).
+- 16 KB DMA → bootet, aber **TLS-Hardware-AES verhungert zur Laufzeit**
+  (`esp-aes: Failed to allocate memory`) → Cloud-Uploads tot.
+Der interne RAM ist neben esp-sr/WiFi/TLS zu knapp für einen großen
+DMA-Puffer. Die saubere Lösung wäre ein **PSRAM-Jitterpuffer**
+(Ringpuffer + Abspiel-Task, I2S-DMA bleibt Default) — auf User-Wunsch
+aber **nicht** weiterverfolgt; stattdessen Streaming komplett revertet
+(`tts.c/.h`, `canned_audio.c/.h`, `cloud.c`, `audio_out.c` auf Stand
+`fea56ac`). TTS ist damit wieder flüssig, aber: höhere Latenz (erst
+Download, dann Ton) und „Speech failed" bei sehr langen Antworten
+(>~21 s Audio, `PCM_MAX`) bestehen wieder.
 
-**Bugfix nach erstem Test (Session 13):** Der Stream-Parser fand das
-Audio nie (`tts: no audio in response`, 3× Retry → Error-Beep), weil
-Gemini die JSON-Antwort **pretty-printed** liefert (`"data": "…"` mit
-Leerzeichen), mein Token aber starr `"data":"` suchte. Fix: nur den Key
-`"data"` matchen und dann bis zur nächsten `"` (Wert-Anfang) springen —
-whitespace-tolerant. Geflasht.
-
-**Nächster Schritt:** TTS-Button an → kurze + lange Frage (Latenz/
-„Speech failed") + „stop" während der Wiedergabe testen.
-
-**Nebenbefund (offen, niedrige Prio):** gpt-oss-120b verweigerte im Test
-eine allgemeine Frage („Erzähl einen Witz" → „ich bin hier, um Timer und
-Lautstärke zu steuern"). Der Tool-/Persona-Prompt wird zu eng
-interpretiert; ein Zusatz wie „Beantworte allgemeine Fragen normal,
-nutze die Tools nur für Timer/Lautstärke" in `TOOL_INSTRUCTIONS`
-(`llm.c`) würde das beheben.
+**Offen / Ideen für später:**
+- Falls TTS-Latenz/Lang-Antworten doch stören: PSRAM-Jitterpuffer-
+  Streaming (nicht den I2S-DMA-Puffer vergrößern — das killt den AES).
+- **Nebenbefund (niedrige Prio):** gpt-oss-120b verweigerte eine
+  allgemeine Frage („Erzähl einen Witz" → „ich bin hier, um Timer/
+  Lautstärke zu steuern"). Persona-/Tool-Prompt wird zu eng ausgelegt;
+  ein Zusatz „Beantworte allgemeine Fragen normal, nutze die Tools nur
+  für Timer/Lautstärke" in `TOOL_INSTRUCTIONS` (`llm.c`) würde helfen.
 
 ---
 

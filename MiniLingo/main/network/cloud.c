@@ -50,31 +50,14 @@ static atomic_bool s_tts_enabled;
 // network_task gelesen/geschrieben, daher kein atomic noetig.
 static bool s_tts_inited;
 
-// PCM-Chunk-Callback der Streaming-TTS (laeuft im network_task). Beim
-// ersten Chunk Wiedergabe starten (Rate setzen, SPEAKING melden); jeder
-// Chunk geht direkt ans I2S. canned_audio_stream_write meldet "stop"
-// (MultiNet) per Fehler zurueck -> tts bricht ab.
-static esp_err_t on_tts_pcm(int16_t *pcm, size_t samples, uint32_t rate,
-                            void *ctx)
-{
-    bool *started = ctx;
-    if (!*started) {
-        canned_audio_stream_begin(rate);
-        atomic_store(&s_speaking, true);
-        s_cb(CLOUD_EVT_SPEAKING, "");
-        *started = true;
-    }
-    return canned_audio_stream_write(pcm, samples);
-}
-
-// Antwort vorlesen (Phase 7, seit Session 13 geraeteseitig gestreamt):
-// das Gemini-Audio wird chunkweise dekodiert und sofort ausgegeben statt
-// erst komplett gepuffert — niedrigere Latenz, keine Laengenlimits. Ein
-// TTS-Fehler ist nicht fatal: die Antwort steht bereits als Bubble da.
+// Antwort vorlesen (Phase 7): TTS-Request (Retry/Backoff macht tts.c),
+// dann blockierende Wiedergabe ueber den Player-Task — "stop"
+// (MultiNet) bricht sie per canned_audio_stop() ab. Ein TTS-Fehler ist
+// nicht fatal: die Antwort steht bereits als Bubble auf dem Display.
 static void speak_reply(const char *reply)
 {
     if (!s_tts_inited) {
-        // Lazy: Scratch-Puffer erst jetzt holen (Toggle war an).
+        // Lazy: 2,5 MB PSRAM erst jetzt holen (Toggle war an).
         if (tts_init() != ESP_OK) {
             s_cb(CLOUD_EVT_ERROR, "TTS init failed");
             return;
@@ -82,18 +65,24 @@ static void speak_reply(const char *reply)
         s_tts_inited = true;
     }
 
-    bool started = false;
-    esp_err_t err = tts_synthesize_stream(reply, on_tts_pcm, &started);
-    atomic_store(&s_speaking, false);
+    const int16_t *pcm;
+    size_t samples;
+    uint32_t rate;
 
-    // Fehler nur melden, wenn noch KEIN Audio lief — ein Abbruch per
-    // "stop" mitten in der Wiedergabe (started==true) ist kein Fehler.
-    if (err != ESP_OK && !started) {
-        // ESP_ERR_NOT_ALLOWED = HTTP 429: Free-Tier-Tageslimit.
+    esp_err_t err = tts_synthesize(reply, &pcm, &samples, &rate);
+    if (err != ESP_OK) {
+        // ESP_ERR_NOT_ALLOWED = HTTP 429: das Free-Tier-Tageslimit
+        // (10 TTS-Requests) ist erschoepft.
         s_cb(CLOUD_EVT_ERROR, err == ESP_ERR_NOT_ALLOWED
                                   ? "TTS daily limit"
                                   : "Speech failed");
+        return;
     }
+
+    atomic_store(&s_speaking, true);
+    s_cb(CLOUD_EVT_SPEAKING, "");
+    canned_audio_play_pcm(pcm, samples, rate);
+    atomic_store(&s_speaking, false);
 }
 
 static int arg_int(const cJSON *args, const char *key, int fallback)

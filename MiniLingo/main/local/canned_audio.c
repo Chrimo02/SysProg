@@ -259,22 +259,6 @@ esp_err_t canned_audio_play_pcm(const int16_t *pcm, size_t samples,
     return ESP_OK;
 }
 
-void canned_audio_stream_begin(uint32_t rate)
-{
-    // Player-Task ist waehrend SPEAKING idle -> kein zweiter I2S-Schreiber.
-    atomic_store(&s_stop, false);
-    audio_out_set_rate(rate);
-}
-
-esp_err_t canned_audio_stream_write(int16_t *pcm, size_t samples)
-{
-    if (atomic_load(&s_stop)) {
-        return ESP_ERR_INVALID_STATE;  // "stop" -> Wiedergabe abbrechen
-    }
-    audio_out_write(pcm, samples);  // wendet den Gain in-place an
-    return ESP_OK;
-}
-
 void canned_audio_stop(void)
 {
     xQueueReset(s_queue);

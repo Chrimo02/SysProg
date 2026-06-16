@@ -25,17 +25,11 @@ static atomic_int_least32_t s_gain_q15 = AUDIO_OUT_GAIN_UNITY;
 
 esp_err_t audio_out_init(void)
 {
-    // Default-DMA-Puffer (6x240 ≈ 60 ms). Groesser zu machen bringt zwar
-    // ein Jitter-Polster fuers TTS-Streaming, frisst aber internen RAM:
-    // 16 KB liessen den TLS-Hardware-AES zur Laufzeit verhungern
-    // ("esp-aes: Failed to allocate memory" -> Cloud-Uploads scheitern),
-    // 24 KB scheiterten schon beim Boot. Der Jitterpuffer gehoert deshalb
-    // in den PSRAM (canned_audio-Ringpuffer), nicht ins I2S-DMA.
     i2s_chan_config_t chan_cfg =
         I2S_CHANNEL_DEFAULT_CONFIG(I2S_NUM_1, I2S_ROLE_MASTER);
     // Ohne auto_clear loopt nach dem letzten i2s_channel_write der
-    // DMA-Buffer-Inhalt endlos weiter -> "Knattern". auto_clear nullt
-    // gesendete Deskriptoren.
+    // DMA-Buffer-Inhalt endlos weiter -> "Knattern" nach jedem
+    // Playback. auto_clear nullt gesendete Deskriptoren.
     chan_cfg.auto_clear = true;
     ESP_RETURN_ON_ERROR(i2s_new_channel(&chan_cfg, &s_tx_chan, NULL),
                         TAG, "i2s_new_channel");
