@@ -96,6 +96,7 @@ static bool s_listening;
 static bool s_processing;
 static bool s_speaking;
 static char s_state_text[24];
+static int s_volume_shown = -1;
 
 static uint32_t lvgl_tick_get_cb(void)
 {
@@ -396,6 +397,19 @@ static void update_state_text(void)
     }
 }
 
+// Volume-Anzeige (Label + Slider-Position) aus dem aktuellen Gain
+// nachziehen — deckt alle Pfade ab: lokaler Command, Touch-Slider und
+// seit Phase 10 die Cloud-Tool-Calls (volume_set im network_task). Wie
+// update_state_text() nur bei Aenderung schreiben (kein Tick-Redraw).
+static void update_volume_display(void)
+{
+    int v = volume_get();
+    if (v != s_volume_shown) {
+        s_volume_shown = v;
+        ui_status_bar_set_volume(v);
+    }
+}
+
 // LVGL-Timer: holt Events aus den anderen Task-Kontexten ab.
 static void app_event_timer_cb(lv_timer_t *timer)
 {
@@ -466,7 +480,6 @@ static void app_event_timer_cb(lv_timer_t *timer)
         format_command_bubble((command_id_t)cmd, atomic_load(&s_cmd_arg),
                               text, sizeof(text));
         ui_chat_add_local_bubble(text);
-        ui_status_bar_set_volume(volume_get());
         s_listening = false;
         // Gruen als Match-Feedback, nach 800 ms zurueck auf Idle
         // (Animationen kommen in Phase 8).
@@ -480,6 +493,7 @@ static void app_event_timer_cb(lv_timer_t *timer)
     }
 
     update_state_text();
+    update_volume_display();
 }
 
 void app_main(void)

@@ -62,9 +62,19 @@ Latenz, bewusste Entscheidung passend zur Cerebras-Quota-Motivation):
   `canned_audio_play` queued nur — alles aus dem network_task sicher
   (eine frühere Annahme, es brauche eine Dispatch-Queue, war falsch).
 
-**Nicht geändert:** `main.c`, `state.c` (kein CHAT_ROLE_TOOL nötig),
-keine neuen Canned-Audio-Files (beliebige Werte → Text-Bubble, TTS ist
-ohnehin per Kconfig aus).
+**Nicht geändert:** `state.c` (kein CHAT_ROLE_TOOL nötig), keine neuen
+Canned-Audio-Files (beliebige Werte → Text-Bubble, TTS ist ohnehin per
+Kconfig aus).
+
+**Nachbesserung nach erstem User-Test (2026-06-16): Volume-Anzeige
+aktualisierte bei Cloud-`set_volume` nicht** (Slider + Prozentanzeige
+blieben stehen). Ursache: die Status-Bar-Lautstärke wurde nur beim
+lokalen Command (`s_cmd_event`) bzw. beim Slider-Drag gesetzt — der
+Cloud-Tool-Pfad emittiert nur `CLOUD_EVT_REPLY`. Fix in `main.c`: neues
+`update_volume_display()` pollt jeden LVGL-Tick `volume_get()` und
+schreibt die Anzeige nur bei Änderung (Guard `s_volume_shown`, analog
+zu `update_state_text()`/Timer-Countdown). Deckt jetzt alle Pfade ab;
+die explizite Setzung im Command-Zweig ist dadurch entfallen. Geflasht.
 
 **Nächster Schritt: User-Test am Gerät** (`idf.py flash monitor`):
 1. "Mycroft" → "Stell einen Timer auf sieben Minuten" → Bubble
