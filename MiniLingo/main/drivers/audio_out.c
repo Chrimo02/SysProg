@@ -31,6 +31,14 @@ esp_err_t audio_out_init(void)
     // DMA-Buffer-Inhalt endlos weiter -> "Knattern" nach jedem
     // Playback. auto_clear nullt gesendete Deskriptoren.
     chan_cfg.auto_clear = true;
+    // Grosser DMA-Puffer als Jitter-Polster fuer die gestreamte
+    // TTS-Wiedergabe: der Default (6x240 = 60 ms) laeuft leer, sobald
+    // der TLS-Download kurz stockt -> abgehackter Ton. 8x1536 = 12288
+    // Frames ≈ 512 ms @24 kHz puffern den Netzwerk-Jitter weg (~24 KB
+    // internes DMA-RAM). Das Audio kommt im Schnitt schneller als
+    // Echtzeit, fuellt den Puffer also vor.
+    chan_cfg.dma_desc_num = 8;
+    chan_cfg.dma_frame_num = 1536;
     ESP_RETURN_ON_ERROR(i2s_new_channel(&chan_cfg, &s_tx_chan, NULL),
                         TAG, "i2s_new_channel");
 
