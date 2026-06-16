@@ -88,13 +88,18 @@ typedef struct {
     void *ctx;
     bool started;       // erster PCM-Chunk an cb gegeben?
     bool done;          // schliessende Quote erreicht
-    int match;          // gematchte Zeichen des Such-Tokens
+    int match;          // gematchte Zeichen des Key-Tokens
+    bool key_done;      // Key "data" gefunden, suche oeffnende Quote
     bool in_data;       // im Base64-Wert
     size_t b64n;        // Fuellstand s_b64
     size_t total;       // ausgegebene Samples (fuer die Logzeile)
 } tts_stream_t;
 
-static const char DATA_TOKEN[] = "\"data\":\"";
+// Nur der Key (inkl. umschliessender Quotes); die oeffnende Quote des
+// WERTS folgt nach ":"/Whitespace und wird separat gesucht — so ist der
+// Parser unabhaengig davon, ob die JSON-Antwort kompakt ("data":") oder
+// pretty-printed ("data": ") ist (Gemini liefert mit Leerzeichen).
+static const char DATA_TOKEN[] = "\"data\"";
 #define DATA_TOKEN_LEN (sizeof(DATA_TOKEN) - 1)
 
 // Einen Base64-Batch dekodieren und an den Callback geben. n muss ein
@@ -124,20 +129,29 @@ static esp_err_t flush_batch(tts_stream_t *s, size_t n)
 static esp_err_t feed_byte(tts_stream_t *s, char c)
 {
     if (!s->in_data) {
-        // "data":" suchen (naiver Matcher; das Token kommt im Gemini-
-        // Response genau einmal als Audio-Feld vor). Das Base64-Alphabet
-        // enthaelt kein ", die schliessende Quote ist also eindeutig.
-        if (c == DATA_TOKEN[s->match]) {
-            if (++s->match == (int)DATA_TOKEN_LEN) {
-                s->in_data = true;
-                s->b64n = 0;
+        if (!s->key_done) {
+            // Key "data" suchen (naiver Matcher; kommt im Gemini-Response
+            // genau einmal als Audio-Feld vor — "inlineData"/"mimeType"
+            // matchen nicht).
+            if (c == DATA_TOKEN[s->match]) {
+                if (++s->match == (int)DATA_TOKEN_LEN) {
+                    s->key_done = true;
+                }
+            } else {
+                s->match = (c == DATA_TOKEN[0]) ? 1 : 0;
             }
-        } else {
-            s->match = (c == DATA_TOKEN[0]) ? 1 : 0;
+            return ESP_OK;
+        }
+        // Key gefunden: bis zur oeffnenden Quote des Werts springen
+        // (dazwischen nur ":"/Whitespace, kein weiteres ").
+        if (c == '"') {
+            s->in_data = true;
+            s->b64n = 0;
         }
         return ESP_OK;
     }
-    if (c == '"') {                       // Ende des Base64-Werts
+    if (c == '"') {                       // Ende des Base64-Werts (das
+                                          // Base64-Alphabet enthaelt kein ")
         esp_err_t r = flush_batch(s, s->b64n);
         s->b64n = 0;
         s->done = true;

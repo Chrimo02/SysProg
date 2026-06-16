@@ -61,9 +61,22 @@ langen Antworten.
   Generierung (~2–4 s) bleibt; nur Live-API (WebSocket) oder ein
   streamender Anbieter würden auch die überlappen.
 
-**Nächster Schritt:** Board anstecken → `idf.py flash` → TTS-Button an →
-kurze + lange Frage (Latenz/„Speech failed") + „stop" während der
-Wiedergabe testen.
+**Bugfix nach erstem Test (Session 13):** Der Stream-Parser fand das
+Audio nie (`tts: no audio in response`, 3× Retry → Error-Beep), weil
+Gemini die JSON-Antwort **pretty-printed** liefert (`"data": "…"` mit
+Leerzeichen), mein Token aber starr `"data":"` suchte. Fix: nur den Key
+`"data"` matchen und dann bis zur nächsten `"` (Wert-Anfang) springen —
+whitespace-tolerant. Geflasht.
+
+**Nächster Schritt:** TTS-Button an → kurze + lange Frage (Latenz/
+„Speech failed") + „stop" während der Wiedergabe testen.
+
+**Nebenbefund (offen, niedrige Prio):** gpt-oss-120b verweigerte im Test
+eine allgemeine Frage („Erzähl einen Witz" → „ich bin hier, um Timer und
+Lautstärke zu steuern"). Der Tool-/Persona-Prompt wird zu eng
+interpretiert; ein Zusatz wie „Beantworte allgemeine Fragen normal,
+nutze die Tools nur für Timer/Lautstärke" in `TOOL_INSTRUCTIONS`
+(`llm.c`) würde das beheben.
 
 ---
 
