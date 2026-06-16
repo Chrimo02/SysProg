@@ -32,55 +32,48 @@
 ## Aktueller Stand / Nächster Schritt
 
 **Stand 2026-06-16 (Session 12, Fortsetzung): Phase B —
-Charakter-/Wakeword-Switcher implementiert, gebaut, geflasht.
-Voice-Test (User) ausstehend.** Klick auf den Status-Text oben cyclet
-Mycroft → Alexa → Jarvis: jeweils eigenes Wakeword (Live-Wechsel ohne
-Reboot) und eigene KI-Persona.
+Charakter-/Wakeword-Switcher implementiert, am Gerät verifiziert (User
+2026-06-16: „funktioniert prächtig").** Klick auf den Status-Text oben
+cyclet Mycroft → Alexa → Jarvis: jeweils eigenes Wakeword und eigene
+KI-Persona. **Umschalten per Reboot** (s.u. — Live-Wechsel scheiterte am
+RAM).
 
-- **3 Wakewords geflasht** (`sdkconfig.defaults` + `sdkconfig`):
+- **3 Wakewords in der Partition** (`sdkconfig.defaults` + `sdkconfig`):
   `WN9_MYCROFT_TTS` + `WN9_ALEXA` + `WN9_JARVIS_TTS` (je ~292 KB),
-  srmodels.bin neu gepackt.
-- **`afe_pipeline.c`**: zwei Wakenets per Config
-  (`wakenet_model_name` = mycroft = Model-Index 1, `_2` = alexa = 2),
-  das dritte (jarvis = 3) nach `create_from_config` per
-  `add_wakenet_model()`. **Software-Filter im afe_fetch_task**: eine
-  echte Wake-Detection startet nur dann eine Session, wenn ihr
-  `wakenet_model_index` zum aktiven Charakter passt (Mapping
-  `s_char_for_model[]`); Touch umgeht den Filter.
-  `afe_pipeline_set_active_character()` (atomar).
+  srmodels.bin neu gepackt. **Aktiv ist zur Laufzeit nur EINES.**
+- **RAM-Befund (wichtig):** Der erste Anlauf lud alle 3 Wakenets
+  gleichzeitig (2 per Config + 1 per `add_wakenet_model()`) und filterte
+  Detections per `wakenet_model_index` auf den aktiven Charakter. Das
+  **bootloopt**: die 3 Wakenets laden zwar (`add_wakenet_model(jarvis)
+  -> 3 wakenet(s)`), aber direkt danach scheitert das Anlegen der
+  AFE-Tasks — `assert failed: afe_pipeline.c (ok == pdPASS)`, der
+  Task-Stack passt nicht mehr in den erschöpften internen RAM → Reboot-
+  Loop. (Mein vorheriger „stabiles Idle"-Schluss aus dem passiven
+  Serial-Read war falsch — die Panic-Ausgabe ging beim USB-Re-Enumerieren
+  jedes Reboots verloren.)
+- **Lösung — Reboot-Switch** (`afe_pipeline_init(models, character_idx)`):
+  beim Boot wird nur das EINE Wakeword des aktiven Charakters geladen
+  (RAM wie vorher, stabil), kein Filter nötig.
+  `on_character_clicked` (main.c) cyclet den Charakter, speichert ihn via
+  `config_set_character` (NVS), zeigt „Switching to X..." und startet
+  nach ~1,2 s neu (`reboot_task` → `esp_restart`). Beim Boot stellt
+  `config_character_index()` den Charakter wieder her.
 - **`llm.c`**: `SYSTEM_INSTRUCTION` aufgeteilt in `DEFAULT_PERSONA` +
-  `TOOL_INSTRUCTIONS`; `llm_set_system_prompt()` tauscht die Persona
-  (Pointer), `build_request` hängt die Tool-Hinweise immer an (Phase-10-
-  Tools bleiben in jeder Persona aktiv).
+  `TOOL_INSTRUCTIONS`; `llm_set_system_prompt()` setzt die Persona beim
+  Boot, `build_request` hängt die Tool-Hinweise immer an (Phase-10-Tools
+  bleiben in jeder Persona aktiv).
 - **`main.c`**: `character_t s_characters[3]` (Name/Idle-Text/Persona),
-  `on_character_clicked` cyclet + setzt Wakenet-Filter + Persona +
-  persistiert via `config_set_character` (NVS). Idle-Text in
-  `update_state_text` kommt aus der Tabelle. Aktiver Charakter wird beim
-  Boot aus dem NVS wiederhergestellt.
-- **`ui_status_bar.c`**: State-Label klickbar, Callback
+  Idle-Text in `update_state_text` aus der Tabelle.
+  **`ui_status_bar.c`**: State-Label klickbar, Callback
   `ui_status_bar_set_state_clicked_cb`.
 
-**Verifikation:** Build grün (App 20% frei). Am Gerät: stabiles Idle
-ohne Bootloop/Panic (passiver Serial-Read mit DTR = 0 Zeilen) → die 3
-Wakenets laden ohne RAM-/Modell-Fehler (sonst würde
-`ESP_ERROR_CHECK(afe_pipeline_init)` panic-loopen). **Headless-Boot-Log-
-Capture ging auf dem Native-USB-Serial-JTAG nicht** (Konsole DTR-gated,
-re-enumeriert beim Reset) — den Boot-Log mit dem Index-Mapping per
-`idf.py -p /dev/cu.usbmodem2101 monitor` (TTY nötig) ansehen.
+**Verifikation:** Build grün (App 20% frei). Crash-Log fing den Bootloop
+der 3-Wakenet-Variante (assert), Reboot-Variante vom User geflasht und
+bestätigt. Hinweis fürs Flashen eines bootloopenden Native-USB-Boards:
+esptool kommt nicht rein (Port re-enumeriert ständig) — Chip von Hand in
+den Download-Modus (BOOT halten, RESET tippen) bringen, dann flashen.
 
-**User-Test ausstehend (Voice):**
-1. Status-Text antippen → „Listening for Mycroft/Alexa/Jarvis" cyclet
-   + Bubble „Now: X".
-2. Aktiv = Jarvis: „Jarvis" weckt, „Mycroft"/„Alexa" wecken NICHT;
-   Antwort im Jarvis-Ton.
-3. **Falls ein Wakeword die falsche Persona aktiviert**, stimmt das
-   Index→Charakter-Mapping in `afe_pipeline.c` (`s_char_for_model[]`)
-   nicht — am Boot-Log (`wakenets: 1=… 2=… 3=…` + „wake ignored:
-   model N") gegenprüfen und die Zuordnung tauschen.
-4. Regression: Timer-/Volume-Tools in jeder Persona; Charakter überlebt
-   Reboot.
-
-Danach ist nur noch Phase 9 (AEC) offen — optional.
+Damit ist nur noch Phase 9 (AEC) offen — optional.
 
 ---
 
@@ -904,15 +897,18 @@ end-to-end.
   -> afe_fetch_task startet die normale Listening-Session ohne
   WakeNet. `wake_word_on_touch()` feuert denselben Listener wie das
   Wake Word.
-- **Charakter-Switcher: 3 Wakenets gleichzeitig + Software-Filter**
-  (Phase B, Session 12): statt das aktive WakeNet-Modell umzuschalten
-  (esp-sr bietet kein sauberes per-Modell-Disable) laufen Mycroft/Alexa/
-  Jarvis parallel; der `afe_fetch_task` verwirft Detections, deren
-  `wakenet_model_index` nicht zum aktiven Charakter gehört. Kein Reboot
-  beim Wechsel. Persona-Prompt via `llm_set_system_prompt` (Pointer-
-  Tausch), Tool-Hinweise (`TOOL_INSTRUCTIONS`) bleiben in jeder Persona.
-  Reihenfolge der `character_t`-Tabelle (main.c) MUSS zum Model-Index-
-  Mapping (`s_char_for_model[]`, afe_pipeline.c) passen.
+- **Charakter-Switcher: ein Wakenet pro Boot + Reboot beim Wechsel**
+  (Phase B, Session 12): 3 Wakenets gleichzeitig (Live-Filter per
+  `wakenet_model_index`) **funktioniert NICHT** — der interne RAM reicht
+  nicht, das Anlegen der AFE-Tasks scheitert (`assert ok==pdPASS`,
+  Bootloop). Deshalb lädt `afe_pipeline_init(models, character_idx)` nur
+  das EINE Wakeword des aktiven Charakters; alle drei liegen in der
+  Partition, der Wechsel speichert den Index in NVS und rebootet
+  (`esp_restart`, ~3 s). Persona-Prompt via `llm_set_system_prompt`
+  (Pointer-Tausch beim Boot), Tool-Hinweise (`TOOL_INSTRUCTIONS`) bleiben
+  in jeder Persona. Wichtig fürs RAM: esp-sr + LVGL + TLS lassen keinen
+  Platz für mehr als ein WakeNet (vgl. mbedTLS-PSRAM-Verlagerung,
+  Phase 5).
 - **Config kommt aus NVS, nicht mehr nur aus Kconfig** (Session 12,
   `main/config.c`): SSID/Passwort/API-Keys/Modelle werden beim Boot aus
   dem NVS-Namespace `minilingo` geladen, Fallback ist der jeweilige

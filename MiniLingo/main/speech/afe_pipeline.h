@@ -10,7 +10,11 @@
 // Commands muessen VOR dem Pipeline-Start initialisiert sein, weil der
 // fetch-Task sie ab dem ersten Wake Word fuettert.
 // Erwartet initialisiertes audio_in (audio_in_init).
-esp_err_t afe_pipeline_init(srmodel_list_t *models);
+// character_idx (Phase B) waehlt das EINE zu ladende Wakeword
+// (0=Mycroft, 1=Alexa, 2=Jarvis). Drei Wakenets gleichzeitig sprengen
+// den internen RAM (Task-Stack-Alloc schlaegt fehl) — der Charakter-
+// Switcher laedt deshalb nur das aktive Modell und rebootet beim Wechsel.
+esp_err_t afe_pipeline_init(srmodel_list_t *models, int character_idx);
 
 // Touch-Trigger (Spec Section 2: "Wake Word | Touch"): startet eine
 // Listening-Session wie nach dem Wake Word, nur ohne WakeNet. Aus
@@ -18,9 +22,3 @@ esp_err_t afe_pipeline_init(srmodel_list_t *models);
 // afe_fetch_task holt das Flag mit dem naechsten AFE-Frame ab.
 // Ignoriert, solange schon ein Capture oder die Cloud-Pipeline laeuft.
 void afe_pipeline_request_listening(void);
-
-// Charakter-Switcher (Phase B): es laufen alle Wakenets (Mycroft/Alexa/
-// Jarvis) gleichzeitig, aber nur das Wakeword des aktiven Charakters
-// startet eine Session. idx ist der Charakter-Index (0..2), passend zur
-// character_t-Tabelle in main.c. Atomar, aus jedem Task aufrufbar.
-void afe_pipeline_set_active_character(int idx);

@@ -23,6 +23,7 @@
 #include "freertos/task.h"
 
 #include "esp_log.h"
+#include "esp_system.h"
 #include "esp_timer.h"
 #include "nvs_flash.h"
 #include "sdkconfig.h"
@@ -180,21 +181,25 @@ static void on_wifi_clicked(void)
     ui_chat_add_local_bubble("Browser: http://192.168.4.1");
 }
 
+static void reboot_task(void *arg)
+{
+    vTaskDelay(pdMS_TO_TICKS(1200));  // Bubble kurz sichtbar lassen
+    esp_restart();
+}
+
 static void on_character_clicked(void)
 {
-    // LVGL-Task-Kontext. Nächsten Charakter aktivieren: Wakeword-Filter
-    // (afe_pipeline, atomar), Persona (llm, Pointer-Tausch) und
-    // NVS-Persistenz. Der Idle-Text zieht der nächste update_state_text-
-    // Tick nach.
+    // LVGL-Task-Kontext. Nächsten Charakter wählen, in NVS speichern und
+    // neu starten: drei Wakenets gleichzeitig sprengen den internen RAM,
+    // deshalb lädt der Boot nur das eine aktive Wakeword (afe_pipeline).
     s_character = (s_character + 1) % NUM_CHARACTERS;
     const character_t *c = &s_characters[s_character];
-    afe_pipeline_set_active_character(s_character);
-    llm_set_system_prompt(c->persona);
     config_set_character(s_character);
 
-    char bubble[32];
-    snprintf(bubble, sizeof(bubble), "Now: %s", c->name);
+    char bubble[40];
+    snprintf(bubble, sizeof(bubble), "Switching to %s...", c->name);
     ui_chat_add_local_bubble(bubble);
+    xTaskCreate(reboot_task, "reboot", 2048, NULL, 5, NULL);
 }
 
 static void on_wifi_status(bool connected)
@@ -639,9 +644,8 @@ void app_main(void)
     srmodel_list_t *models = esp_srmodel_init("model");
     ESP_ERROR_CHECK(commands_init(models, on_local_command,
                                   on_command_timeout));
-    ESP_ERROR_CHECK(afe_pipeline_init(models));
-    // Wakenet-Filter auf den wiederhergestellten Charakter setzen.
-    afe_pipeline_set_active_character(s_character);
+    // Nur das Wakeword des aktiven Charakters laden (RAM, s. afe_pipeline).
+    ESP_ERROR_CHECK(afe_pipeline_init(models, s_character));
 
     ESP_LOGI(TAG, "Phase 8 up: local commands + cloud STT + LLM"
 #if CONFIG_TTS_SPEAK_REPLIES
