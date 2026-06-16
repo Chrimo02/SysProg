@@ -31,6 +31,42 @@
 
 ## Aktueller Stand / Nächster Schritt
 
+**Stand 2026-06-16 (Session 13): TTS-Latenz — geräteseitiges Streaming
+implementiert, gebaut (grün). Flash/Hörtest ausstehend (Board war beim
+Abschluss nicht am USB).** Behebt zugleich „Cloud: Speech failed" bei
+langen Antworten.
+
+- **Problem:** `tts.c` lud bisher die KOMPLETTE Gemini-Antwort
+  (`http_read_body` → ganzes Base64 dekodieren → `canned_audio_play_pcm`),
+  bevor der erste Ton kam. Folgen: hohe Latenz (Download 0,5–1,5 MB über
+  TLS liegt VOR der Wiedergabe) und „Speech failed", sobald die Antwort
+  die festen Puffer (`RESPONSE_MAX` 1,5 MB / `PCM_MAX` 1 MB ≈ 21 s)
+  übersteigt.
+- **Lösung:** Body chunkweise lesen (`esp_http_client_read`), das
+  `inlineData.data`-Base64 mit einem kleinen Stream-Parser
+  (`feed_byte`/`flush_batch`) inkrementell dekodieren und die PCM-Chunks
+  sofort ans I2S geben. Neue API `tts_synthesize_stream(text, cb, ctx)`
+  mit Chunk-Callback; die 1,5-MB/1-MB-PSRAM-Puffer entfallen (nur noch
+  ~7 KB Scratch). Rate fix 24 kHz (mimeType-Parsing entfällt).
+- **Wiedergabe-Sink** (`canned_audio_stream_begin`/`_write`): schreibt
+  direkt ans I2S (Gain in-place), prüft das Stop-Flag → „stop" bricht ab.
+  Player-Task ist während SPEAKING idle, daher einziger Schreiber.
+- **`cloud.c`**: `speak_reply` nutzt `tts_synthesize_stream` mit
+  `on_tts_pcm`; SPEAKING wird erst beim ersten echten Audio gesetzt;
+  Retry nur, solange kein Chunk lief; Fehler nur melden, wenn noch kein
+  Ton kam (Stop mitten drin ist kein Fehler).
+- **Effekt:** Wiedergabe startet ~beim ersten Chunk → der Download-Anteil
+  (~2–5 s) fällt aus der Latenz; lange Antworten spielen vollständig.
+  **Grenze:** Gemini `generateContent` ist nicht streamend — die Server-
+  Generierung (~2–4 s) bleibt; nur Live-API (WebSocket) oder ein
+  streamender Anbieter würden auch die überlappen.
+
+**Nächster Schritt:** Board anstecken → `idf.py flash` → TTS-Button an →
+kurze + lange Frage (Latenz/„Speech failed") + „stop" während der
+Wiedergabe testen.
+
+---
+
 **Stand 2026-06-16 (Session 12, Fortsetzung): Phase B —
 Charakter-/Wakeword-Switcher implementiert, am Gerät verifiziert (User
 2026-06-16: „funktioniert prächtig").** Klick auf den Status-Text oben

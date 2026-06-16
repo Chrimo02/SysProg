@@ -25,23 +25,28 @@ static const char *TAG = "tts";
     "https://generativelanguage.googleapis.com/v1beta/models/" \
     TTS_MODEL ":generateContent"
 
-// ~10 s Audio (maxOutputTokens=200) sind 480 KB PCM = 640 KB Base64 +
-// JSON-Overhead (Spec Section 13). Etwas Luft fuer laengere Antworten.
-#define RESPONSE_MAX (1536 * 1024)
-#define PCM_MAX      (1024 * 1024)
+// gemini-2.5-flash-preview-tts liefert L16-PCM @ 24 kHz (mimeType
+// "audio/L16;codec=pcm;rate=24000"). Das Streaming dekodiert ohne den
+// mimeType zu parsen — die Rate ist fuer dieses Modell fix.
 #define DEFAULT_RATE 24000
 
 // TTS-Generierung braucht laenger als der Text-Endpoint.
 #define TIMEOUT_MS 30000
 
-static char *s_resp;     // Response-JSON (PSRAM)
-static int16_t *s_pcm;   // dekodiertes PCM (PSRAM)
+// Streaming-Puffer: Body chunkweise lesen, Base64 in 4er-Gruppen
+// (B64_BATCH ist Vielfaches von 4) inkrementell dekodieren -> PCM.
+#define READ_BUF   2048
+#define B64_BATCH  4096
+#define PCM_BATCH  (B64_BATCH / 4 * 3)  // 3072 Byte
+
+static uint8_t *s_b64;   // Base64-Akku (PSRAM)
+static uint8_t *s_pcm;   // dekodiertes PCM eines Batches (PSRAM)
 
 esp_err_t tts_init(void)
 {
-    s_resp = heap_caps_malloc(RESPONSE_MAX, MALLOC_CAP_SPIRAM);
-    s_pcm = heap_caps_malloc(PCM_MAX, MALLOC_CAP_SPIRAM);
-    if (!s_resp || !s_pcm) {
+    s_b64 = heap_caps_malloc(B64_BATCH, MALLOC_CAP_SPIRAM);
+    s_pcm = heap_caps_malloc(PCM_BATCH, MALLOC_CAP_SPIRAM);
+    if (!s_b64 || !s_pcm) {
         ESP_LOGE(TAG, "PSRAM buffer alloc failed");
         return ESP_ERR_NO_MEM;
     }
@@ -76,61 +81,81 @@ static char *build_request(const char *text)
     return body;
 }
 
-// Extrahiert inlineData aus dem Response-JSON und dekodiert nach s_pcm.
-static esp_err_t parse_audio(const char *json, size_t *samples,
-                             uint32_t *sample_rate)
+// Stream-Parser-Zustand fuer einen Response-Body. Findet das
+// "data":"-Feld und dekodiert das folgende Base64 chunkweise nach PCM.
+typedef struct {
+    tts_pcm_cb_t cb;
+    void *ctx;
+    bool started;       // erster PCM-Chunk an cb gegeben?
+    bool done;          // schliessende Quote erreicht
+    int match;          // gematchte Zeichen des Such-Tokens
+    bool in_data;       // im Base64-Wert
+    size_t b64n;        // Fuellstand s_b64
+    size_t total;       // ausgegebene Samples (fuer die Logzeile)
+} tts_stream_t;
+
+static const char DATA_TOKEN[] = "\"data\":\"";
+#define DATA_TOKEN_LEN (sizeof(DATA_TOKEN) - 1)
+
+// Einen Base64-Batch dekodieren und an den Callback geben. n muss ein
+// Vielfaches von 4 sein (gilt fuer volle Batches und — da gueltiges
+// Base64 4-Byte-aligned ist — auch fuer den Rest am Ende).
+static esp_err_t flush_batch(tts_stream_t *s, size_t n)
 {
-    cJSON *root = cJSON_Parse(json);
-    if (!root) {
-        ESP_LOGE(TAG, "response is not valid JSON");
+    if (n == 0) {
+        return ESP_OK;
+    }
+    size_t olen = 0;
+    int err = mbedtls_base64_decode(s_pcm, PCM_BATCH, &olen, s_b64, n);
+    if (err != 0) {
+        ESP_LOGE(TAG, "base64 decode failed (-0x%04x)", -err);
         return ESP_FAIL;
     }
-
-    esp_err_t ret = ESP_FAIL;
-    const cJSON *cand = cJSON_GetArrayItem(
-        cJSON_GetObjectItem(root, "candidates"), 0);
-    const cJSON *parts = cJSON_GetObjectItem(
-        cJSON_GetObjectItem(cand, "content"), "parts");
-    const cJSON *part;
-    cJSON_ArrayForEach(part, parts) {
-        const cJSON *inline_data = cJSON_GetObjectItem(part, "inlineData");
-        const cJSON *mime = cJSON_GetObjectItem(inline_data, "mimeType");
-        const cJSON *data = cJSON_GetObjectItem(inline_data, "data");
-        if (!cJSON_IsString(mime) || !cJSON_IsString(data)) {
-            continue;
-        }
-        if (strncmp(mime->valuestring, "audio/L16", 9) != 0) {
-            ESP_LOGW(TAG, "unexpected mimeType: %s", mime->valuestring);
-            continue;
-        }
-        const char *rate_str = strstr(mime->valuestring, "rate=");
-        *sample_rate = rate_str ? (uint32_t)atoi(rate_str + 5)
-                                : DEFAULT_RATE;
-
-        size_t pcm_bytes = 0;
-        int err = mbedtls_base64_decode(
-            (unsigned char *)s_pcm, PCM_MAX, &pcm_bytes,
-            (const unsigned char *)data->valuestring,
-            strlen(data->valuestring));
-        if (err != 0) {
-            // BUFFER_TOO_SMALL hiesse: Antwort laenger als PCM_MAX.
-            ESP_LOGE(TAG, "base64 decode failed (-0x%04x)", -err);
-            break;
-        }
-        *samples = pcm_bytes / sizeof(int16_t);
-        ret = ESP_OK;
-        break;
+    if (olen == 0) {
+        return ESP_OK;
     }
-    if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "no audio in response: %.256s", json);
-    }
-    cJSON_Delete(root);
-    return ret;
+    s->started = true;
+    s->total += olen / sizeof(int16_t);
+    return s->cb((int16_t *)s_pcm, olen / sizeof(int16_t), DEFAULT_RATE,
+                 s->ctx);
 }
 
-static esp_err_t synthesize_once(const char *text, const int16_t **pcm,
-                                 size_t *samples, uint32_t *sample_rate)
+// Ein Body-Byte durch den Parser schicken.
+static esp_err_t feed_byte(tts_stream_t *s, char c)
 {
+    if (!s->in_data) {
+        // "data":" suchen (naiver Matcher; das Token kommt im Gemini-
+        // Response genau einmal als Audio-Feld vor). Das Base64-Alphabet
+        // enthaelt kein ", die schliessende Quote ist also eindeutig.
+        if (c == DATA_TOKEN[s->match]) {
+            if (++s->match == (int)DATA_TOKEN_LEN) {
+                s->in_data = true;
+                s->b64n = 0;
+            }
+        } else {
+            s->match = (c == DATA_TOKEN[0]) ? 1 : 0;
+        }
+        return ESP_OK;
+    }
+    if (c == '"') {                       // Ende des Base64-Werts
+        esp_err_t r = flush_batch(s, s->b64n);
+        s->b64n = 0;
+        s->done = true;
+        return r;
+    }
+    s_b64[s->b64n++] = (uint8_t)c;
+    if (s->b64n == B64_BATCH) {
+        esp_err_t r = flush_batch(s, B64_BATCH);
+        s->b64n = 0;
+        return r;
+    }
+    return ESP_OK;
+}
+
+static esp_err_t synthesize_stream_once(const char *text, tts_pcm_cb_t cb,
+                                        void *ctx, bool *started)
+{
+    *started = false;
     if (strlen(config_gemini_key()) == 0) {
         ESP_LOGE(TAG, "Gemini API key not set (Setup-Portal/menuconfig)");
         return ESP_ERR_INVALID_STATE;
@@ -146,8 +171,6 @@ static esp_err_t synthesize_once(const char *text, const int16_t **pcm,
         .method = HTTP_METHOD_POST,
         .crt_bundle_attach = esp_crt_bundle_attach,
         .timeout_ms = TIMEOUT_MS,
-        // Response bis >1 MB: groesserer Empfangs-Buffer = weniger
-        // Read-Aufrufe (Default 512 Byte).
         .buffer_size = 8192,
     };
     esp_http_client_handle_t client = esp_http_client_init(&cfg);
@@ -174,60 +197,71 @@ static esp_err_t synthesize_once(const char *text, const int16_t **pcm,
     cJSON_free(body);
 
     int status = -1;
-    int body_len = 0;
     if (err == ESP_OK) {
         if (esp_http_client_fetch_headers(client) < 0) {
             ESP_LOGE(TAG, "no response headers");
             err = ESP_FAIL;
         } else {
             status = esp_http_client_get_status_code(client);
-            body_len = http_read_body(client, s_resp, RESPONSE_MAX);
         }
     }
+
+    if (err == ESP_OK && status != 200) {
+        // Fehlerkoerper kurz fuer die Logzeile lesen. 429 = Free-Tier-
+        // Tageslimit (eigene Kennung); 5xx transient (Preview wirft
+        // sporadisch 500), restliche 4xx permanent.
+        char errbuf[256];
+        int n = esp_http_client_read(client, errbuf, sizeof(errbuf) - 1);
+        errbuf[n > 0 ? n : 0] = '\0';
+        ESP_LOGE(TAG, "HTTP %d: %s", status, errbuf);
+        err = (status == 429)  ? ESP_ERR_NOT_ALLOWED
+              : (status >= 500) ? ESP_FAIL
+                                : ESP_ERR_INVALID_RESPONSE;
+    } else if (err == ESP_OK) {
+        // 200: Body streamen + chunkweise dekodieren/ausgeben.
+        tts_stream_t st = { .cb = cb, .ctx = ctx };
+        char rbuf[READ_BUF];
+        int n;
+        while ((n = esp_http_client_read(client, rbuf, sizeof(rbuf))) > 0) {
+            for (int i = 0; i < n && !st.done; i++) {
+                err = feed_byte(&st, rbuf[i]);
+                if (err != ESP_OK) {
+                    break;  // cb-Abbruch ("stop") oder Decode-Fehler
+                }
+            }
+            if (st.done || err != ESP_OK) {
+                break;
+            }
+        }
+        *started = st.started;
+        if (err == ESP_OK && !st.done) {
+            // 200, aber kein Audio (z.B. finishReason=OTHER) — transient.
+            ESP_LOGE(TAG, "no audio in response");
+            err = ESP_FAIL;
+        } else if (err == ESP_OK) {
+            ESP_LOGI(TAG, "audio streamed in %u ms (%.1f s @ %u Hz)",
+                     (unsigned)(esp_log_timestamp() - t0),
+                     (float)st.total / (float)DEFAULT_RATE,
+                     (unsigned)DEFAULT_RATE);
+        }
+    }
+
     esp_http_client_close(client);
     esp_http_client_cleanup(client);
-
-    if (err != ESP_OK) {
-        return err;
-    }
-    if (status != 200) {
-        // 429 = Free-Tier-Limit (10 Requests/Tag fuer die TTS-Preview,
-        // verifiziert 2026-06-12) — eigene Kennung, damit die UI das
-        // Limit vom generischen Fehler unterscheidet und der Wrapper
-        // nicht sinnlos wiederholt. 5xx ist transient (die Preview
-        // wirft sporadisch 500 INTERNAL), restliche 4xx permanent.
-        ESP_LOGE(TAG, "HTTP %d: %.256s", status, s_resp);
-        if (status == 429) {
-            return ESP_ERR_NOT_ALLOWED;
-        }
-        return status >= 500 ? ESP_FAIL : ESP_ERR_INVALID_RESPONSE;
-    }
-
-    // parse_audio scheitert auch bei finishReason=OTHER ohne Audio —
-    // ebenfalls transient (beobachtet 2026-06-12), der Wrapper
-    // wiederholt das mit.
-    err = parse_audio(s_resp, samples, sample_rate);
-    if (err == ESP_OK) {
-        *pcm = s_pcm;
-        ESP_LOGI(TAG, "audio in %u ms: %u KB response -> %.1f s PCM @ %u Hz",
-                 (unsigned)(esp_log_timestamp() - t0),
-                 (unsigned)(body_len / 1024),
-                 (float)*samples / (float)*sample_rate,
-                 (unsigned)*sample_rate);
-    }
     return err;
 }
 
-esp_err_t tts_synthesize(const char *text, const int16_t **pcm,
-                         size_t *samples, uint32_t *sample_rate)
+esp_err_t tts_synthesize_stream(const char *text, tts_pcm_cb_t cb, void *ctx)
 {
     esp_err_t err = ESP_FAIL;
     for (int attempt = 0; attempt < HTTP_MAX_ATTEMPTS; attempt++) {
         if (attempt > 0) {
             http_backoff_delay(attempt, TAG);
         }
-        err = synthesize_once(text, pcm, samples, sample_rate);
-        if (!http_err_is_transient(err)) {
+        bool started = false;
+        err = synthesize_stream_once(text, cb, ctx, &started);
+        // Sobald Audio lief, nicht erneut versuchen (schon abgespielt).
+        if (started || !http_err_is_transient(err)) {
             break;
         }
     }
