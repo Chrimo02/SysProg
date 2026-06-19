@@ -3,9 +3,9 @@
 > **Lies dieses Dokument zuerst**, wenn du eine neue Session zu diesem
 > Projekt startest. Es zeigt, wo wir stehen und was als nächstes ansteht.
 >
-> - Architektur & Implementierungsplan: [MINILINGO_VOICE_ASSISTANT_SPEC.md](MINILINGO_VOICE_ASSISTANT_SPEC.md)
+> - Architektur & Implementierungsplan: [SPEC-de.md](SPEC-de.md)
 >   (insb. Section 12 "Implementierungsphasen")
-> - Hardware-Validierung der Einzelkomponenten: [COMPONENT_TESTS.md](COMPONENT_TESTS.md)
+> - Hardware-Validierung der Einzelkomponenten: [COMPONENT_TESTS-de.md](COMPONENT_TESTS-de.md)
 
 ---
 
@@ -13,7 +13,7 @@
 
 | Phase | Beschreibung | Status | Notizen/Datum |
 |-------|--------------|--------|---------------|
-| 0 | Hardware-Komponententests (Mic, Amp, Display, Touch) | ✅ erledigt | Siehe [COMPONENT_TESTS.md](COMPONENT_TESTS.md), 2026-06-10 |
+| 0 | Hardware-Komponententests (Mic, Amp, Display, Touch) | ✅ erledigt | Siehe [COMPONENT_TESTS-de.md](COMPONENT_TESTS-de.md), 2026-06-10 |
 | 1 | Projekt-Skelett + LVGL + UI-Mockup | ✅ erledigt | 2026-06-10, am Gerät verifiziert (UI, Touch, Scrolling) |
 | 2 | WiFi + esp-sr + Wake Word | ✅ erledigt | 2026-06-10, am Gerät verifiziert: Wake Word 3/3 Detections, WiFi verbindet (2,4-GHz-SSID) |
 | 3 | Audio-Capture + Recording-Buffer | ✅ erledigt | 2026-06-10, am Gerät verifiziert: WAV via UART-Dump extrahiert, Sprache anhörbar |
