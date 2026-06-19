@@ -12,6 +12,11 @@
 // TTS-Response bis ~1 MB, immer PSRAM).
 esp_err_t tts_init(void);
 
+// Setzt die aktive Stimme (Pointer auf ein statisches String-Literal aus
+// main.c, analog zu llm_set_system_prompt). Faellt ohne Aufruf auf
+// config_gemini_voice() zurueck.
+void tts_set_voice(const char *voice);
+
 // Synthetisiert text. *pcm zeigt auf den internen PSRAM-Buffer und
 // bleibt bis zum naechsten Aufruf gueltig — es gibt genau einen
 // Aufrufer (network_task), der die Wiedergabe abwartet, bevor der

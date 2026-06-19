@@ -41,6 +41,7 @@
 #include "network/cloud.h"
 #include "network/llm.h"
 #include "network/provisioning.h"
+#include "network/tts.h"
 #include "network/wifi.h"
 #include "speech/afe_pipeline.h"
 #include "speech/commands.h"
@@ -60,17 +61,24 @@ typedef struct {
     const char *name;
     const char *idle_text;
     const char *persona;
+    const char *voice;
 } character_t;
 
 static const character_t s_characters[] = {
     { "Mycroft", "Listening for Mycroft",
-      "Du bist Mycroft, ein sachlicher und knapper Sprachassistent." },
+      "Du bist Mycroft, eine ausgesprochen eloquente, belesene und "
+      "weise Persoenlichkeit, wie der aeltere Bruder von Sherlock Holmes. "
+      "Du druecksts dich gewaehlt und hoeflich aus, bringst gelegentlich "
+      "eine scharfsinnige Beobachtung oder einen feinen Gedanken ein und "
+      "bleibst dabei stets zuvorkommend.", "Charon" },
     { "Alexa", "Listening for Alexa",
-      "Du bist Alexa, eine freundliche und hilfsbereite "
-      "Sprachassistentin." },
+      "Du bist Alexa, eine freundliche und hilfsbereite Sprachassistentin "
+      "im Stil von Amazons Alexa: locker, warmherzig und unkompliziert.",
+      "Aoede" },
     { "Jarvis", "Listening for Jarvis",
-      "Du bist Jarvis, ein hoeflicher britischer Butler mit trockenem "
-      "Humor; sprich den Nutzer gelegentlich mit 'Sir' an." },
+      "Du bist Jarvis, eine hochtechnische KI im Stil von Iron Mans "
+      "J.A.R.V.I.S.: praezise, sachlich, denkst in technischen Details und "
+      "sprichst den Nutzer foermlich mit 'Sir' an.", "Fenrir" },
 };
 #define NUM_CHARACTERS (sizeof(s_characters) / sizeof(s_characters[0]))
 
@@ -588,6 +596,7 @@ void app_main(void)
         s_character = 0;
     }
     llm_set_system_prompt(s_characters[s_character].persona);
+    tts_set_voice(s_characters[s_character].voice);
 
     lv_init();
     lv_tick_set_cb(lvgl_tick_get_cb);

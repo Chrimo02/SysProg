@@ -36,6 +36,7 @@ static const char *TAG = "tts";
 
 static char *s_resp;     // Response-JSON (PSRAM)
 static int16_t *s_pcm;   // dekodiertes PCM (PSRAM)
+static const char *s_voice;  // NULL = config_gemini_voice() als Fallback
 
 esp_err_t tts_init(void)
 {
@@ -46,6 +47,11 @@ esp_err_t tts_init(void)
         return ESP_ERR_NO_MEM;
     }
     return ESP_OK;
+}
+
+void tts_set_voice(const char *voice)
+{
+    s_voice = voice;
 }
 
 // Request-Body nach Spec Section 9.5; Rueckgabe via cJSON_free().
@@ -69,7 +75,8 @@ static char *build_request(const char *text)
         cJSON_AddObjectToObject(
             cJSON_AddObjectToObject(gen, "speechConfig"), "voiceConfig"),
         "prebuiltVoiceConfig");
-    cJSON_AddStringToObject(voice, "voiceName", config_gemini_voice());
+    cJSON_AddStringToObject(voice, "voiceName",
+                            s_voice ? s_voice : config_gemini_voice());
 
     char *body = cJSON_PrintUnformatted(root);
     cJSON_Delete(root);
