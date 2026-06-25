@@ -15,7 +15,7 @@ in [archive/PROGRESS-sessions-de.md](archive/PROGRESS-sessions-de.md).
 | 4 | MultiNet + local commands | ✅ done |
 | 5 | Groq Whisper (STT) | ✅ done |
 | 6 | LLM text answers + history | ✅ done |
-| 7 | Gemini TTS + playback | ✅ done (off by default) |
+| 7 | TTS + playback (local Piper primary, Gemini fallback) | ✅ done (off by default) |
 | 8 | Polish + robustness (fonts, retries, silence guard, animations) | ✅ done |
 | 8b | Touch volume slider + spoken volume levels | ✅ done |
 | 8c | LLM switch Gemini → Cerebras | ✅ done |
@@ -24,6 +24,7 @@ in [archive/PROGRESS-sessions-de.md](archive/PROGRESS-sessions-de.md).
 | A | Wi-Fi setup portal (runtime provisioning) | ✅ done |
 | B | Character / wake-word switcher (Mycroft/Alexa/Jarvis) | ✅ done |
 | — | Per-character personas + per-character TTS voices | ✅ done |
+| — | Local Piper TTS server as primary source (Gemini fallback) | ✅ done |
 
 The assistant is **feature-complete** for its intended scope. The only
 unfinished phase is AEC, which is optional.
@@ -41,18 +42,22 @@ flashed but still want a real on-device pass:
 - **Wi-Fi setup portal (Phase A)** — flashed; do a full phone → portal → save →
   reboot pass.
 - **TTS toggle** — confirm the button toggles spoken replies.
+- **Local Piper TTS** — with TTS on, confirm `[TTS] Using local` in the log and
+  audible speech; then make the Pi unreachable and confirm `[TTS] Fallback to
+  Gemini` after ~3 s.
 - **Wi-Fi drop test** — drop the router mid-question: expect "Cloud: No WiFi
   connection" + beep, local commands still work, auto-reconnect within ~5 s.
 
 ## Open items / ideas
 
-- **TTS latency & long-answer failures.** With TTS on, there's download-then-play
-  latency, and answers longer than ~21 s of audio (`PCM_MAX`) fail with "Speech
-  failed". The clean fix is a **PSRAM jitter buffer** (ring buffer + playback
-  task, I2S-DMA left at default). Device-side streaming was tried and reverted
-  (choppy due to DMA underrun); **do not** fix it by enlarging the I2S-DMA
-  buffer — that starves the TLS AES (see
-  [07-lessons-learned.md](07-lessons-learned.md)). Not pursued, by choice.
+- **TTS latency & long-answer failures.** The local Piper server largely
+  addresses latency (LAN, no daily limit). Some download-then-play latency
+  remains, and answers longer than the response buffer (~21 s @ 22 kHz for local
+  WAV, `PCM_MAX` for Gemini) still fail with "Speech failed". The clean fix is a
+  **PSRAM jitter buffer** (ring buffer + playback task, I2S-DMA left at default).
+  Device-side streaming was tried and reverted (choppy due to DMA underrun);
+  **do not** fix it by enlarging the I2S-DMA buffer — that starves the TLS AES
+  (see [07-lessons-learned.md](07-lessons-learned.md)). Not pursued, by choice.
 - **Persona breadth.** `gpt-oss-120b` once refused a general question ("tell a
   joke" → "I only control timer/volume"). Adding "answer general questions
   normally; use tools only for timer/volume" to `TOOL_INSTRUCTIONS` in
@@ -70,7 +75,8 @@ flashed but still want a real on-device pass:
 ## How to extend
 
 - **Add a character:** add a row to `s_characters` in [main.c](../main/main.c)
-  (name, idle text, persona, voice), make sure its WakeNet is selected in
+  (name, idle text, persona, Gemini voice, local Piper voice), make sure its
+  WakeNet is selected in
   `sdkconfig.defaults` and mapped in
   [afe_pipeline.c](../main/speech/afe_pipeline.c).
 - **Add a local command:** add a row to `COMMANDS` in

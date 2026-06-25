@@ -1,7 +1,14 @@
-// Gemini TTS (Spec Section 9.5, Phase 7): responseModalities=AUDIO,
+// TTS: primaer ein lokaler Piper-Server im LAN (HTTP POST -> rohe
+// WAV-Bytes, 44-Byte-Header ueberspringen, PCM direkt in die I2S-Pipeline),
+// Gemini nur noch als Fallback wenn der lokale Server fehlschlaegt oder das
+// 3-s-Timeout reisst.
+//
+// Gemini-Fallback (Spec Section 9.5, Phase 7): responseModalities=AUDIO,
 // Response-JSON in PSRAM puffern, inlineData.data per
 // mbedtls_base64_decode in den PCM-Buffer dekodieren. Die Sample-Rate
 // kommt aus dem mimeType ("audio/L16;codec=pcm;rate=24000").
+#include <ctype.h>
+#include <stdbool.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -19,6 +26,15 @@
 
 static const char *TAG = "tts";
 
+// Lokaler Piper-TTS-Server (primaere Quelle, kein TLS): liefert rohe
+// WAV-Bytes (PCM, mono, 16-bit). Bei Fehler/Timeout faellt tts_synthesize
+// auf Gemini zurueck.
+#define TTS_LOCAL_URL        "http://192.168.3.143:5050/tts"
+#define TTS_LOCAL_VOICE      "jarvis"   // Fallback-Default, per-character ueberschreibbar
+#define TTS_LOCAL_TIMEOUT_MS 3000       // danach Fallback auf Gemini
+#define WAV_HEADER_BYTES     44         // kanonischer RIFF/WAVE-Header
+#define LANG_DETECT_MAX      512        // genug Text fuer die Stopwort-Heuristik
+
 // Preview-Modellname als Konstante (Spec Section 13: kann sich aendern).
 #define TTS_MODEL "gemini-2.5-flash-preview-tts"
 #define TTS_URL \
@@ -34,9 +50,10 @@ static const char *TAG = "tts";
 // TTS-Generierung braucht laenger als der Text-Endpoint.
 #define TIMEOUT_MS 30000
 
-static char *s_resp;     // Response-JSON (PSRAM)
-static int16_t *s_pcm;   // dekodiertes PCM (PSRAM)
-static const char *s_voice;  // NULL = config_gemini_voice() als Fallback
+static char *s_resp;     // Response-Puffer (PSRAM): Gemini-JSON oder lokale WAV-Bytes
+static int16_t *s_pcm;   // dekodiertes Gemini-PCM (PSRAM)
+static const char *s_voice;        // NULL = config_gemini_voice() als Fallback
+static const char *s_local_voice;  // NULL = TTS_LOCAL_VOICE als Fallback
 
 esp_err_t tts_init(void)
 {
@@ -52,6 +69,165 @@ esp_err_t tts_init(void)
 void tts_set_voice(const char *voice)
 {
     s_voice = voice;
+}
+
+void tts_set_local_voice(const char *voice)
+{
+    s_local_voice = voice;
+}
+
+// Sehr einfache Spracherkennung (kein ML, kein Netz): Stopwort-Score
+// Deutsch vs. Englisch plus Umlaute/sz. Reicht, um die richtige
+// Piper-Stimme zu waehlen — die lokalen Voices sind einsprachige
+// Modelle, englischer Text mit der (oft eingestellten) Deutsch-Stimme
+// (oder umgekehrt) klingt deshalb sehr falsch ausgesprochen.
+static bool text_is_german(const char *text)
+{
+    static const char *de_words[] = {
+        " der ", " die ", " das ", " und ", " ist ", " nicht ", " ich ",
+        " du ", " wir ", " mit ", " fuer ", " ein ", " eine ", " auf ",
+        " sind ", " war ", " hat ", " kann ", " auch ", " sehr ",
+        " schon ", " noch ", " mal ", " gerne ", " bitte ", " ihnen ",
+    };
+    static const char *en_words[] = {
+        " the ", " is ", " and ", " you ", " are ", " what ", " this ",
+        " that ", " with ", " for ", " have ", " can ", " will ",
+        " your ", " it's ", " of ", " to ", " a ", " i'm ", " sir ",
+    };
+
+    char buf[LANG_DETECT_MAX + 2];
+    size_t len = strlen(text);
+    if (len > sizeof(buf) - 3) {
+        len = sizeof(buf) - 3;
+    }
+    buf[0] = ' ';
+    for (size_t i = 0; i < len; i++) {
+        buf[i + 1] = (char)tolower((unsigned char)text[i]);
+    }
+    buf[len + 1] = ' ';
+    buf[len + 2] = '\0';
+
+    int de_score = 0, en_score = 0;
+    for (size_t i = 0; i < sizeof(de_words) / sizeof(de_words[0]); i++) {
+        if (strstr(buf, de_words[i])) {
+            de_score++;
+        }
+    }
+    for (size_t i = 0; i < sizeof(en_words) / sizeof(en_words[0]); i++) {
+        if (strstr(buf, en_words[i])) {
+            en_score++;
+        }
+    }
+    // UTF-8-Praefixbyte von ae/oe/ue/sz (0xC3 0x84-0xBF) ist ein starkes
+    // Deutsch-Signal und faengt auch kurze Antworten ohne Stopwoerter ab.
+    for (size_t i = 0; i < len; i++) {
+        if ((unsigned char)text[i] == 0xC3) {
+            de_score += 2;
+        }
+    }
+    return de_score >= en_score;
+}
+
+// Request-Body fuer den lokalen Piper-Server: {"text":...,"voice":...}.
+// Rueckgabe via cJSON_free().
+static char *build_local_request(const char *text, const char *voice)
+{
+    cJSON *root = cJSON_CreateObject();
+    if (!root) {
+        return NULL;
+    }
+    cJSON_AddStringToObject(root, "text", text);
+    cJSON_AddStringToObject(root, "voice", voice);
+    char *body = cJSON_PrintUnformatted(root);
+    cJSON_Delete(root);
+    return body;
+}
+
+// HTTP POST an den lokalen Piper-Server. Antwort sind rohe WAV-Bytes; der
+// 44-Byte-Header wird uebersprungen, die Sample-Rate aus dem Header gelesen
+// und *pcm zeigt auf die rohen PCM-Frames in s_resp (gueltig bis zum
+// naechsten Aufruf, genau ein Aufrufer wartet die Wiedergabe ab).
+static esp_err_t synthesize_local(const char *text, const int16_t **pcm,
+                                  size_t *samples, uint32_t *sample_rate)
+{
+    // Die lokalen Voices sind einsprachig: bei Deutsch immer "de" senden,
+    // unabhaengig von der per-character Stimme — sonst spricht z. B.
+    // "jarvis" (Englisch-Modell) deutschen Text in falscher Phonetik.
+    const char *voice = text_is_german(text)
+                             ? "de"
+                             : (s_local_voice ? s_local_voice : TTS_LOCAL_VOICE);
+    char *body = build_local_request(text, voice);
+    if (!body) {
+        return ESP_ERR_NO_MEM;
+    }
+
+    esp_http_client_config_t cfg = {
+        .url = TTS_LOCAL_URL,
+        .method = HTTP_METHOD_POST,
+        .timeout_ms = TTS_LOCAL_TIMEOUT_MS,
+        .buffer_size = 8192,
+    };
+    esp_http_client_handle_t client = esp_http_client_init(&cfg);
+    if (!client) {
+        cJSON_free(body);
+        return ESP_FAIL;
+    }
+    esp_http_client_set_header(client, "Content-Type", "application/json");
+
+    esp_err_t err = esp_http_client_open(client, (int)strlen(body));
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "local connect failed: %s", esp_err_to_name(err));
+        esp_http_client_cleanup(client);
+        cJSON_free(body);
+        return err;
+    }
+
+    int64_t t0 = esp_log_timestamp();
+    err = http_write_all(client, body, strlen(body));
+    cJSON_free(body);
+
+    int status = -1;
+    int body_len = 0;
+    if (err == ESP_OK) {
+        if (esp_http_client_fetch_headers(client) < 0) {
+            err = ESP_FAIL;
+        } else {
+            status = esp_http_client_get_status_code(client);
+            body_len = http_read_body(client, s_resp, RESPONSE_MAX);
+        }
+    }
+    esp_http_client_close(client);
+    esp_http_client_cleanup(client);
+
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "local request failed: %s", esp_err_to_name(err));
+        return err;
+    }
+    if (status != 200) {
+        ESP_LOGW(TAG, "local HTTP %d", status);
+        return ESP_FAIL;
+    }
+    if (body_len <= WAV_HEADER_BYTES) {
+        ESP_LOGW(TAG, "local response too short (%d B)", body_len);
+        return ESP_FAIL;
+    }
+    if (memcmp(s_resp, "RIFF", 4) != 0 || memcmp(s_resp + 8, "WAVE", 4) != 0) {
+        ESP_LOGW(TAG, "local response is not a WAV");
+        return ESP_FAIL;
+    }
+
+    // Sample-Rate aus dem WAV-Header (Offset 24, uint32 LE) — Piper-Voices
+    // laufen z. B. mit 22050 Hz; nicht hart kodieren.
+    const uint8_t *hdr = (const uint8_t *)s_resp;
+    *sample_rate = (uint32_t)hdr[24] | ((uint32_t)hdr[25] << 8) |
+                   ((uint32_t)hdr[26] << 16) | ((uint32_t)hdr[27] << 24);
+    // Offset 44 ist gerade -> 2-Byte-Ausrichtung bleibt erhalten, kein Kopieren.
+    *pcm = (const int16_t *)(s_resp + WAV_HEADER_BYTES);
+    *samples = (size_t)(body_len - WAV_HEADER_BYTES) / sizeof(int16_t);
+    ESP_LOGI(TAG, "local audio (voice=%s) in %u ms: %.1f s PCM @ %u Hz",
+             voice, (unsigned)(esp_log_timestamp() - t0),
+             (float)*samples / (float)*sample_rate, (unsigned)*sample_rate);
+    return ESP_OK;
 }
 
 // Request-Body nach Spec Section 9.5; Rueckgabe via cJSON_free().
@@ -228,6 +404,14 @@ static esp_err_t synthesize_once(const char *text, const int16_t **pcm,
 esp_err_t tts_synthesize(const char *text, const int16_t **pcm,
                          size_t *samples, uint32_t *sample_rate)
 {
+    // Primaer: lokaler Piper-Server (ein Versuch, kein Backoff — bei
+    // Fehler/Timeout sofort Fallback).
+    if (synthesize_local(text, pcm, samples, sample_rate) == ESP_OK) {
+        ESP_LOGI(TAG, "[TTS] Using local");
+        return ESP_OK;
+    }
+    ESP_LOGW(TAG, "[TTS] Fallback to Gemini");
+
     esp_err_t err = ESP_FAIL;
     for (int attempt = 0; attempt < HTTP_MAX_ATTEMPTS; attempt++) {
         if (attempt > 0) {

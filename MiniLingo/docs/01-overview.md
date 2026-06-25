@@ -71,12 +71,14 @@ failure — see [07-lessons-learned.md](07-lessons-learned.md).)
 | Display driver | `espressif/esp_lcd_ili9341` | managed component |
 | STT (cloud) | **Groq Whisper** `whisper-large-v3-turbo` | multipart upload |
 | LLM (cloud) | **Cerebras** `gpt-oss-120b` | OpenAI-compatible chat completions |
-| TTS (cloud) | **Gemini** `gemini-2.5-flash-preview-tts` | off by default |
+| TTS (primary) | **local Piper server** (HTTP, LAN) | raw WAV, off by default |
+| TTS (fallback) | **Gemini** `gemini-2.5-flash-preview-tts` | only if local fails/times out |
 
 > **Note on the LLM:** the original spec used Gemini for text answers; the
 > project switched to Cerebras for a far larger free-tier quota. Gemini remains
-> only for (optional) TTS. If you read the archived spec, keep this in mind.
-> Details: [06-design-decisions.md](06-design-decisions.md).
+> only for (optional) TTS — and only as the **fallback** behind a local Piper
+> server. If you read the archived spec, keep this in mind. Details:
+> [06-design-decisions.md](06-design-decisions.md).
 
 ## Where the code lives
 

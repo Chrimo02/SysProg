@@ -16,6 +16,7 @@ sequenceDiagram
     participant MN as commands (MultiNet)
     participant Net as network_task
     participant Cloud as Groq/Cerebras/Gemini
+    participant Piper as local Piper server
     participant Pump as LVGL event pump
     participant Spk as player_task → amp
 
@@ -44,7 +45,10 @@ sequenceDiagram
         alt text reply
             Net->>Pump: s_reply_event
             opt TTS enabled
-                Net->>Cloud: Gemini TTS
+                Net->>Piper: local TTS (WAV)
+                alt local fails / times out (3 s)
+                    Net->>Cloud: Gemini TTS (fallback)
+                end
                 Net->>Spk: canned_audio_play_pcm(...)
             end
         else tool call
@@ -158,9 +162,12 @@ so a failed request never leaves a half-turn ([state.c](../main/state.c)).
 
 If the TTS toggle is on, `speak_reply()`:
 - lazily allocates the 2.5 MB PSRAM TTS buffers on first use (`tts_init()`);
-- `tts_synthesize()` ([tts.c](../main/network/tts.c)) calls Gemini TTS with the
-  character's voice, base64-decodes the returned PCM, reads the sample rate
-  from the MIME type;
+- `tts_synthesize()` ([tts.c](../main/network/tts.c)) **POSTs to the local Piper
+  server** with the character's local voice and reads the raw WAV response
+  (header skipped, sample rate from the WAV header → `[TTS] Using local`). If
+  that fails or times out (3 s), it **falls back to Gemini TTS**
+  (`[TTS] Fallback to Gemini`), base64-decoding the PCM and reading the sample
+  rate from the MIME type;
 - sets `s_speaking` + emits `CLOUD_EVT_SPEAKING` (UI → "Speaking…", green);
 - `canned_audio_play_pcm()` enqueues the PCM to the **same player task** as the
   canned WAVs and **blocks** until playback finishes — which keeps the pipeline
@@ -169,9 +176,10 @@ If the TTS toggle is on, `speak_reply()`:
 While speaking, `afe_fetch_task` runs a MultiNet session that accepts only
 "stop", which calls `canned_audio_stop()` to abort playback.
 
-TTS is **off by default** (free-tier limit of 10 requests/day, 3–5 s latency) —
-the text bubble is the normal output. See
-[06-design-decisions.md](06-design-decisions.md).
+TTS is **off by default** (the toggle seeds from `CONFIG_TTS_SPEAK_REPLIES`) —
+the text bubble is the normal output. With the local Piper server, the old
+free-tier limit (10 requests/day) and 3–5 s latency only apply on the Gemini
+fallback. See [06-design-decisions.md](06-design-decisions.md).
 
 ## 6. Back to idle
 

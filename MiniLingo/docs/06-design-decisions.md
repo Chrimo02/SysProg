@@ -35,25 +35,43 @@ confirmation is worded exactly like the local-command bubbles
 confirmation is pushed to history as the model turn so follow-ups ("two minutes
 shorter") still have context. No `CHAT_ROLE_TOOL` needed.
 
+## Local Piper TTS primary, Gemini fallback
+
+**Decision:** `tts_synthesize()` POSTs to a local Piper server on the LAN
+(`TTS_LOCAL_URL`) first and only falls back to Gemini if that fails or exceeds a
+3 s timeout. The local server returns raw WAV bytes; the 44-byte header is
+skipped and the PCM is fed straight into the existing I2S pipeline (no base64,
+no copy — `*pcm` points into the response buffer).
+**Why:** Gemini's TTS free tier is **10 requests/day** with 3–5 s latency, which
+made spoken replies impractical. A local Piper server has no daily limit and far
+lower latency, so it makes sense as the default source while Gemini stays as a
+zero-config fallback for when the server is unreachable. The single-attempt +
+3 s timeout keeps the fallback snappy; the Gemini path keeps its own retry/error
+semantics (429 → "TTS daily limit", etc.). Which source served the audio is
+logged (`[TTS] Using local` / `[TTS] Fallback to Gemini`).
+
 ## TTS off by default, runtime-toggleable
 
 **Decision:** spoken replies are off by default; a button toggles them live;
 `CONFIG_TTS_SPEAK_REPLIES` only seeds the initial state.
-**Why:** Gemini TTS free tier is **10 requests/day** and adds 3–5 s latency —
-too little for everyday use. The text bubble is enough most of the time. The
-2.5 MB PSRAM buffers are allocated lazily on first use, so "off" is exactly as
+**Why:** historically Gemini TTS (10 requests/day, 3–5 s latency) was too little
+for everyday use. With the local Piper server those limits are gone, but the
+text bubble is still enough most of the time, so off-by-default stays. The 2.5 MB
+PSRAM buffers are allocated lazily on first use, so "off" is exactly as
 memory-cheap as never compiling TTS in. The original compile-only Kconfig flag
 became just the default.
 
 ## Per-character persona + voice
 
 **Decision:** each character (Mycroft/Alexa/Jarvis) has its own wake word,
-system-prompt persona, and Gemini TTS voice, in one `character_t` table in
-[main.c](../main/main.c).
-**Why:** it's the product's personality, and keeping name/idle-text/persona/voice
-together makes adding a character a one-line change. Persona is pushed to the LLM
-via `llm_set_system_prompt` (a pointer swap) and the voice via `tts_set_voice`,
-both at boot — mirroring one pattern.
+system-prompt persona, local Piper voice, and Gemini TTS voice, in one
+`character_t` table in [main.c](../main/main.c).
+**Why:** it's the product's personality, and keeping
+name/idle-text/persona/voices together makes adding a character a one-line
+change. Persona is pushed to the LLM via `llm_set_system_prompt` (a pointer
+swap), the local voice via `tts_set_local_voice` and the Gemini voice via
+`tts_set_voice`, all at boot — mirroring one pattern. The Piper voice names
+(`jarvis`/`mycroft`/`alexa`) line up 1:1 with the characters.
 
 ## Reboot to switch characters (one WakeNet per boot)
 
@@ -77,8 +95,8 @@ once. This is also why STT→LLM→TTS is a strict sequence, not parallel.
 
 ## One audio player for canned + TTS
 
-**Decision:** pre-recorded WAVs and Gemini-TTS PCM share one player task and one
-queue (`canned_audio`), instead of a separate TTS queue.
+**Decision:** pre-recorded WAVs and TTS PCM (local or Gemini) share one player
+task and one queue (`canned_audio`), instead of a separate TTS queue.
 **Why:** one I2S writer means "stop" aborts both, and the timer alarm vs. a
 spoken reply serialize naturally. `canned_audio_play_pcm()` blocks until
 playback ends, which conveniently keeps the pipeline "busy" so the speaker can't

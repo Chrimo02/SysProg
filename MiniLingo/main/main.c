@@ -61,7 +61,8 @@ typedef struct {
     const char *name;
     const char *idle_text;
     const char *persona;
-    const char *voice;
+    const char *voice;        // Gemini-Stimme (Fallback-TTS)
+    const char *local_voice;  // Piper-Stimme des lokalen Servers (primaer)
 } character_t;
 
 static const character_t s_characters[] = {
@@ -70,15 +71,15 @@ static const character_t s_characters[] = {
       "weise Persoenlichkeit, wie der aeltere Bruder von Sherlock Holmes. "
       "Du druecksts dich gewaehlt und hoeflich aus, bringst gelegentlich "
       "eine scharfsinnige Beobachtung oder einen feinen Gedanken ein und "
-      "bleibst dabei stets zuvorkommend.", "Charon" },
+      "bleibst dabei stets zuvorkommend.", "Charon", "mycroft" },
     { "Alexa", "Listening for Alexa",
       "Du bist Alexa, eine freundliche und hilfsbereite Sprachassistentin "
       "im Stil von Amazons Alexa: locker, warmherzig und unkompliziert.",
-      "Aoede" },
+      "Aoede", "alexa" },
     { "Jarvis", "Listening for Jarvis",
       "Du bist Jarvis, eine hochtechnische KI im Stil von Iron Mans "
       "J.A.R.V.I.S.: praezise, sachlich, denkst in technischen Details und "
-      "sprichst den Nutzer foermlich mit 'Sir' an.", "Fenrir" },
+      "sprichst den Nutzer foermlich mit 'Sir' an.", "Fenrir", "jarvis" },
 };
 #define NUM_CHARACTERS (sizeof(s_characters) / sizeof(s_characters[0]))
 
@@ -597,6 +598,7 @@ void app_main(void)
     }
     llm_set_system_prompt(s_characters[s_character].persona);
     tts_set_voice(s_characters[s_character].voice);
+    tts_set_local_voice(s_characters[s_character].local_voice);
 
     lv_init();
     lv_tick_set_cb(lvgl_tick_get_cb);

@@ -37,8 +37,9 @@ Q15 gain consumed by [audio_out](drivers.md):
 
 [canned_audio.c](../../main/local/canned_audio.c). One **player task**
 (`audio_out`, Core 1, prio 5) drives the speaker for *both* pre-recorded WAVs
-(from the SPIFFS `storage` partition) **and** raw Gemini-TTS PCM — over the same
-queue. This unification is deliberate: one I2S writer, so "stop" aborts both,
+(from the SPIFFS `storage` partition) **and** raw TTS PCM (local Piper or the
+Gemini fallback) — over the same queue. This unification is deliberate: one I2S
+writer, so "stop" aborts both,
 and the timer alarm and a spoken reply serialize naturally instead of fighting
 over the amp.
 
@@ -59,7 +60,8 @@ over the amp.
   because the macOS `say`/`afconvert` fallback inserts an `FLLR` padding chunk
   before `data`. Only PCM/16-bit/mono is accepted.
 - **Sample-rate switching**: `play_file`/`play_pcm` call `audio_out_set_rate()`
-  (16 kHz canned, 24 kHz TTS) before streaming in 4 KB chunks. PCM is copied
+  (16 kHz canned; TTS rate comes from the source — ~22 kHz from the local WAV
+  header, 24 kHz from Gemini) before streaming in 4 KB chunks. PCM is copied
   into a chunk buffer first because the gain is applied in place.
 
 ### The canned files

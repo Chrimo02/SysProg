@@ -44,8 +44,9 @@ master-TX, 16-bit, mono, left slot. Default rate 16 kHz, reconfigurable.
   (`(sample * gain_q15) >> 15`) before writing. Gain is an atomic, so it can be
   changed from any task. Unity gain = `AUDIO_OUT_GAIN_UNITY`.
 - **`audio_out_set_rate()`** disables, reconfigures the clock, and re-enables
-  the channel — used to switch between 16 kHz canned audio and 24 kHz Gemini
-  TTS. Only the caller (the player task) uses this, so there's no locking.
+  the channel — used to switch between 16 kHz canned audio and the TTS rate
+  (~22 kHz from the local Piper WAV header, 24 kHz from the Gemini fallback).
+  Only the caller (the player task) uses this, so there's no locking.
 
 > **Do not enlarge the I2S-DMA buffer** to smooth playback — it starved the TLS
 > hardware-AES of internal RAM and broke cloud uploads. See

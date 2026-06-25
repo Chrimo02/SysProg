@@ -72,8 +72,14 @@ topic. If a term shows up in another doc with a `→`, it points here.
   **Cerebras** (OpenAI-compatible chat completions, model `gpt-oss-120b`).
 - **Whisper** — OpenAI's speech-to-text model; we call it via **Groq**
   (`whisper-large-v3-turbo`).
+- **TTS (text-to-speech)** — turns the answer text into spoken audio. Primary
+  source is a **local Piper server**; **Gemini TTS** is the fallback.
+- **Piper** — a fast, local neural TTS engine; here it runs on a Raspberry Pi on
+  the LAN and answers `POST /tts` with raw WAV bytes (voices `jarvis`/`mycroft`/
+  `alexa`/`de`/`en`). The primary TTS source.
 - **Gemini TTS** — Google's text-to-speech (model
-  `gemini-2.5-flash-preview-tts`); turns the answer into spoken audio.
+  `gemini-2.5-flash-preview-tts`); the **fallback** used only when the local
+  Piper server is unreachable or times out.
 - **Tool calling / function calling** — the LLM, instead of replying with
   text, asks the firmware to run a named function (e.g. `set_timer`) with
   arguments. See [network.md](04-subsystems/network.md) and

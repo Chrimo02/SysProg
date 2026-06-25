@@ -10,7 +10,10 @@ How to build, flash, configure, and run MiniLingo from a clean checkout.
 - The board: **ESP32-S3 N16R8** (16 MB flash, 8 MB octal PSRAM) wired per the
   [pin map](04-subsystems/drivers.md).
 - API keys (free tiers): **Cerebras** (LLM, required), **Groq** (Whisper,
-  required), **Gemini** (TTS, optional).
+  required), **Gemini** (TTS **fallback** only, optional).
+- For spoken replies, a reachable **local Piper TTS server** on the LAN
+  (`TTS_LOCAL_URL`, default `http://192.168.3.143:5050/tts`) — the primary TTS
+  source. Without it, TTS still works via the Gemini fallback (if a key is set).
 
 ## Activate the toolchain
 
@@ -34,11 +37,15 @@ entirely and provision at runtime instead (see below).
 | `LLM_MODEL` | `gpt-oss-120b` | Cerebras model (free tier: also `zai-glm-4.7`) |
 | `GROQ_API_KEY` | empty | Whisper STT (required) |
 | `WHISPER_LANGUAGE` | `de` | language hint sent to Whisper |
-| `GEMINI_API_KEY` | empty | Gemini TTS (optional) |
-| `GEMINI_VOICE_NAME` | `Kore` | default TTS voice (per-character voices override) |
+| `GEMINI_API_KEY` | empty | Gemini TTS fallback (optional) |
+| `GEMINI_VOICE_NAME` | `Kore` | default Gemini TTS voice (per-character voices override) |
 | `TTS_SPEAK_REPLIES` | `n` | initial state of the TTS toggle |
 | `WAKE_WORD_THRESHOLD` | `0` | 0 = model default; higher = stricter |
 | `RECORDING_WAV_DUMP` | `n` | Phase-3 debug: dump captures as Base64 over UART |
+
+The local Piper server endpoint and default voice are compile-time `#define`s at
+the top of [tts.c](../main/network/tts.c) (`TTS_LOCAL_URL`, `TTS_LOCAL_VOICE`,
+`TTS_LOCAL_TIMEOUT_MS`), not Kconfig — edit them there if your server differs.
 
 Core build settings live in [sdkconfig.defaults](../sdkconfig.defaults): PSRAM
 (octal, 8 MB), 16 MB flash with the custom [partitions.csv](../partitions.csv),

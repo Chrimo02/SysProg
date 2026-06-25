@@ -96,20 +96,39 @@ These exist for values the fixed MultiNet phrases can't express
 ("7 minutes", "35 percent"). See
 [06-design-decisions.md](../06-design-decisions.md) for why this is single-call.
 
-## tts.c — Text-to-Speech (Gemini)
+## tts.c — Text-to-Speech (local Piper, Gemini fallback)
 
-[tts.c](../../main/network/tts.c). `POST` to Gemini
-`gemini-2.5-flash-preview-tts:generateContent` with
-`responseModalities=AUDIO` and the voice from `tts_set_voice()` (per-character;
-falls back to `config_gemini_voice()`).
+[tts.c](../../main/network/tts.c). `tts_synthesize()` tries **two sources in
+order** and returns the first that yields PCM:
 
-- Response JSON (up to 1.5 MB) and decoded PCM (up to 1 MB) live in static
-  **PSRAM** buffers allocated by `tts_init()`. `inlineData.data` is
-  base64-decoded; the sample rate is parsed from the MIME type
-  (`audio/L16;codec=pcm;rate=24000`).
-- HTTP **429 → `ESP_ERR_NOT_ALLOWED`** = the free-tier **10 requests/day** limit
-  (surfaced as "TTS daily limit", never retried). 5xx and missing-audio
-  responses are transient and retried.
+1. **Local Piper server (primary).** `POST http://192.168.3.143:5050/tts`
+   (`TTS_LOCAL_URL`), plain HTTP, body `{"text": ..., "voice": ...}`. The voice
+   normally comes from `tts_set_local_voice()` (per-character: `jarvis`/
+   `mycroft`/`alexa`; falls back to `TTS_LOCAL_VOICE`) — **except**
+   `synthesize_local()` runs a tiny stopword/Umlaut heuristic
+   (`text_is_german()`) over the reply text first and overrides the voice to
+   `"de"` whenever it looks German. The Piper voices are single-language
+   models, so sending German text to an English voice (or vice versa) makes
+   it mispronounce badly; the per-character voice only applies to text
+   detected as English. The response is **raw WAV bytes** (PCM, mono,
+   16-bit). The 44-byte RIFF/WAVE header is skipped; the sample rate is read
+   from header offset 24, and `*pcm` points straight into the WAV body in the
+   PSRAM response buffer (no copy, no decode). Single attempt, 3 s timeout
+   (`TTS_LOCAL_TIMEOUT_MS`) — any failure/timeout falls through to Gemini.
+   Logs `[TTS] Using local` on success (and the chosen voice in the
+   `local audio (voice=...)` debug line).
+2. **Gemini (fallback).** Only reached if the local server fails. Logs
+   `[TTS] Fallback to Gemini`, then `POST` to Gemini
+   `gemini-2.5-flash-preview-tts:generateContent` with `responseModalities=AUDIO`
+   and the voice from `tts_set_voice()` (per-character; falls back to
+   `config_gemini_voice()`). `inlineData.data` is base64-decoded into a separate
+   PSRAM buffer; the sample rate is parsed from the MIME type
+   (`audio/L16;codec=pcm;rate=24000`). HTTP **429 → `ESP_ERR_NOT_ALLOWED`** =
+   the free-tier **10 requests/day** limit (surfaced as "TTS daily limit", never
+   retried). 5xx and missing-audio responses are transient and retried.
+
+- Both the local WAV response (up to 1.5 MB) and the decoded Gemini PCM (up to
+  1 MB) live in static **PSRAM** buffers allocated by `tts_init()`.
 
 ## http_util.c — shared HTTP helpers
 
@@ -127,4 +146,4 @@ and 1 s/2 s backoff. Whisper/LLM/TTS each wrap their `*_once()` in this loop.
 - **API keys** come from NVS (via `config_*` getters), built into `Bearer`
   headers at runtime — see [config.md](config.md).
 - The original spec used Gemini for text; this is now **Cerebras**. Gemini is
-  TTS-only.
+  TTS-only — and only as a **fallback** behind the local Piper server.

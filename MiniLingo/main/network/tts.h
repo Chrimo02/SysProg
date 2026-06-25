@@ -5,17 +5,22 @@
 
 #include "esp_err.h"
 
-// Gemini TTS (Spec Section 9.5, Phase 7): Antwort-Text -> roher
-// PCM-Buffer (16 bit LE, mono, typ. 24 kHz).
+// TTS: Antwort-Text -> roher PCM-Buffer (16 bit LE, mono). Primaer ein
+// lokaler Piper-Server im LAN (rohe WAV-Bytes), Gemini nur als Fallback
+// (Spec Section 9.5, Phase 7).
 
 // Allokiert Response- und PCM-Buffer im PSRAM (Spec Section 13:
 // TTS-Response bis ~1 MB, immer PSRAM).
 esp_err_t tts_init(void);
 
-// Setzt die aktive Stimme (Pointer auf ein statisches String-Literal aus
-// main.c, analog zu llm_set_system_prompt). Faellt ohne Aufruf auf
-// config_gemini_voice() zurueck.
+// Setzt die aktive Gemini-Stimme (Fallback-Pfad; Pointer auf ein statisches
+// String-Literal aus main.c, analog zu llm_set_system_prompt). Faellt ohne
+// Aufruf auf config_gemini_voice() zurueck.
 void tts_set_voice(const char *voice);
+
+// Setzt die Stimme fuer den lokalen Piper-Server (z. B. "jarvis",
+// "mycroft", "alexa"). Faellt ohne Aufruf auf TTS_LOCAL_VOICE zurueck.
+void tts_set_local_voice(const char *voice);
 
 // Synthetisiert text. *pcm zeigt auf den internen PSRAM-Buffer und
 // bleibt bis zum naechsten Aufruf gueltig — es gibt genau einen

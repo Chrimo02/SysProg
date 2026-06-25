@@ -148,8 +148,9 @@ around this:
 
 - **Big buffers go to PSRAM** (`MALLOC_CAP_SPIRAM`): the recording buffer
   (~256 KB), the conversation history (~10 KB), the TTS response/PCM buffers
-  (~2.5 MB, allocated lazily only when TTS is first used), the Whisper raw
-  scratch.
+  (~2.5 MB, allocated lazily only when TTS is first used — the response buffer
+  holds either the local Piper WAV or the Gemini JSON, the PCM buffer the decoded
+  Gemini audio), the Whisper raw scratch.
 - **mbedTLS allocates from PSRAM** (`CONFIG_MBEDTLS_EXTERNAL_MEM_ALLOC`): the
   ~50 KB TLS handshake did not fit in internal SRAM next to esp-sr.
 - **Only one TLS connection at a time.** All cloud requests run sequentially in
