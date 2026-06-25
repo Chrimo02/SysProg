@@ -28,14 +28,14 @@ static const char *TAG = "llm";
 // in jeder Persona erhalten bleiben, sonst brechen die Phase-10-Tools.
 // Knappe Antworten ohne Markdown — Sternchen klingen im TTS schrecklich.
 #define DEFAULT_PERSONA \
-    "Du bist ein kompakter Sprachassistent namens MiniLingo."
+    "You are a compact voice assistant named MiniLingo."
 
 #define TOOL_INSTRUCTIONS \
-    " Halte Antworten unter 3 Saetzen und ohne Markdown-Formatierung. Du " \
-    "steuerst einen Kuechen-Timer und die Lautstaerke: Wenn der Nutzer " \
-    "einen Timer stellen, abbrechen, die Restzeit erfragen oder die " \
-    "Lautstaerke aendern will, rufe das passende Tool auf statt zu " \
-    "antworten. Wandle Minuten in Sekunden um."
+    " Keep replies under 3 sentences and without markdown formatting. You " \
+    "control a kitchen timer and the volume: if the user wants to set or " \
+    "cancel a timer, ask for the remaining time, or change the volume, " \
+    "call the matching tool instead of replying in text. Convert minutes " \
+    "to seconds."
 
 // Aktive Persona (Pointer auf ein statisches String-Literal aus main.c
 // oder das Default). Pointer-Tausch ist atomar genug: gesetzt aus dem
@@ -110,16 +110,16 @@ static void add_tools(cJSON *root)
 {
     cJSON *tools = cJSON_AddArrayToObject(root, "tools");
     add_tool(tools, "set_timer",
-             "Stellt einen Kuechen-Timer auf die angegebene Dauer.",
+             "Sets a kitchen timer for the given duration.",
              int_param_schema("seconds",
-                              "Dauer in Sekunden (1 bis 86400)."));
+                              "Duration in seconds (1 to 86400)."));
     add_tool(tools, "set_volume",
-             "Setzt die Lautstaerke auf den angegebenen Prozentwert.",
-             int_param_schema("percent", "Lautstaerke 0 bis 100."));
+             "Sets the volume to the given percentage.",
+             int_param_schema("percent", "Volume 0 to 100."));
     add_tool(tools, "cancel_timer",
-             "Bricht den laufenden Kuechen-Timer ab.", NULL);
+             "Cancels the running kitchen timer.", NULL);
     add_tool(tools, "get_time_left",
-             "Gibt die Restzeit des laufenden Timers zurueck.", NULL);
+             "Returns the remaining time of the running timer.", NULL);
 }
 
 // Request-Body (OpenAI-Chat-Format); Rueckgabe via cJSON_free().

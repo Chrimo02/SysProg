@@ -33,8 +33,8 @@ TTS) or (tool call → run locally). Key pieces:
   atomics), `volume_set` (atomic). Arguments are parsed from the OpenAI
   `arguments` JSON **string**.
 - **TTS toggle** — `s_tts_enabled` (atomic); `CONFIG_TTS_SPEAK_REPLIES` only
-  seeds the initial value. `cloud_set_tts_enabled()`/`cloud_tts_enabled()` for
-  the button.
+  seeds the initial value (default **on** since the local Piper server became
+  primary). `cloud_set_tts_enabled()`/`cloud_tts_enabled()` for the button.
 
 ## whisper.c — Speech-to-Text (Groq)
 

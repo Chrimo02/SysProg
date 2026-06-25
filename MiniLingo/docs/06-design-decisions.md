@@ -50,16 +50,16 @@ zero-config fallback for when the server is unreachable. The single-attempt +
 semantics (429 → "TTS daily limit", etc.). Which source served the audio is
 logged (`[TTS] Using local` / `[TTS] Fallback to Gemini`).
 
-## TTS off by default, runtime-toggleable
+## TTS on by default, runtime-toggleable
 
-**Decision:** spoken replies are off by default; a button toggles them live;
+**Decision:** spoken replies are on by default; a button toggles them live;
 `CONFIG_TTS_SPEAK_REPLIES` only seeds the initial state.
 **Why:** historically Gemini TTS (10 requests/day, 3–5 s latency) was too little
-for everyday use. With the local Piper server those limits are gone, but the
-text bubble is still enough most of the time, so off-by-default stays. The 2.5 MB
-PSRAM buffers are allocated lazily on first use, so "off" is exactly as
-memory-cheap as never compiling TTS in. The original compile-only Kconfig flag
-became just the default.
+for everyday use, so TTS shipped off by default. With the local Piper server as
+the primary source those limits are gone and latency is low, so spoken replies
+are now the default experience; the button still lets you mute it for a
+text-only session. The 2.5 MB PSRAM buffers are allocated lazily on first use,
+so toggling "off" later still frees nothing already paid for.
 
 ## Per-character persona + voice
 

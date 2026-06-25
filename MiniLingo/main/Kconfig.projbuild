@@ -14,12 +14,14 @@ menu "MiniLingo Configuration"
 
     config WHISPER_LANGUAGE
         string "Whisper language hint (ISO-639-1)"
-        default "de"
+        default "en"
         help
             Wird als language-Parameter an Groq Whisper geschickt
             (Spec Section 9.3) — ohne raet Whisper die Sprache, was
             Latenz kostet und die Genauigkeit verschlechtert.
-            Freie Fragen an MiniLingo sind deutsch -> "de".
+            Default Englisch (Stand 2026-06-25): die lokalen Piper-
+            Stimmen je Charakter sind Englisch-Modelle, nur eine
+            (schwache) deutsche Stimme ist verfuegbar.
 
     config CEREBRAS_API_KEY
         string "Cerebras API Key"
@@ -51,15 +53,15 @@ menu "MiniLingo Configuration"
             Available: Kore, Puck, Charon, Fenrir, Aoede
 
     config TTS_SPEAK_REPLIES
-        bool "Speak cloud replies via Gemini TTS"
-        default n
+        bool "Speak cloud replies via TTS"
+        default y
         help
-            Liest Gemini-Antworten per Gemini-TTS vor (Phase 7).
-            Default aus (Stand 2026-06-12, User-Wunsch): das
-            Free-Tier-Limit der TTS-Preview (10 Requests/Tag) ist
-            fuer den Alltag zu knapp und der TTS-Request kostet
-            3-5 s Latenz — die Text-Antwort auf dem Display genuegt.
-            Aus spart ausserdem 2,5 MB PSRAM (TTS-Buffer).
+            Liest Antworten per TTS vor (primaer lokaler Piper-Server,
+            Gemini nur als Fallback). Default an (Stand 2026-06-25):
+            mit dem lokalen Piper-Server entfaellt das alte
+            Gemini-Tageslimit und die 3-5 s Latenz, die das urspruengl-
+            ich gegen "an" sprachen. Per Button weiterhin abschaltbar
+            (CONFIG_TTS_SPEAK_REPLIES seedet nur den Startwert).
 
     config RECORDING_WAV_DUMP
         bool "Dump recordings as Base64 WAV over UART (Phase-3 test)"

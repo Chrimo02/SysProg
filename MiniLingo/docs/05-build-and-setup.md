@@ -36,10 +36,10 @@ entirely and provision at runtime instead (see below).
 | `CEREBRAS_API_KEY` | empty | LLM (required) |
 | `LLM_MODEL` | `gpt-oss-120b` | Cerebras model (free tier: also `zai-glm-4.7`) |
 | `GROQ_API_KEY` | empty | Whisper STT (required) |
-| `WHISPER_LANGUAGE` | `de` | language hint sent to Whisper |
+| `WHISPER_LANGUAGE` | `en` | language hint sent to Whisper |
 | `GEMINI_API_KEY` | empty | Gemini TTS fallback (optional) |
 | `GEMINI_VOICE_NAME` | `Kore` | default Gemini TTS voice (per-character voices override) |
-| `TTS_SPEAK_REPLIES` | `n` | initial state of the TTS toggle |
+| `TTS_SPEAK_REPLIES` | `y` | initial state of the TTS toggle |
 | `WAKE_WORD_THRESHOLD` | `0` | 0 = model default; higher = stricter |
 | `RECORDING_WAV_DUMP` | `n` | Phase-3 debug: dump captures as Base64 over UART |
 

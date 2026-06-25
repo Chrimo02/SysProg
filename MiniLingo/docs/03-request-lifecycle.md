@@ -176,10 +176,11 @@ If the TTS toggle is on, `speak_reply()`:
 While speaking, `afe_fetch_task` runs a MultiNet session that accepts only
 "stop", which calls `canned_audio_stop()` to abort playback.
 
-TTS is **off by default** (the toggle seeds from `CONFIG_TTS_SPEAK_REPLIES`) —
-the text bubble is the normal output. With the local Piper server, the old
-free-tier limit (10 requests/day) and 3–5 s latency only apply on the Gemini
-fallback. See [06-design-decisions.md](06-design-decisions.md).
+TTS is **on by default** (the toggle seeds from `CONFIG_TTS_SPEAK_REPLIES`) —
+the local Piper server has no daily limit and low latency, so spoken replies
+are the normal experience; the old free-tier limit (10 requests/day) and
+3–5 s latency only apply on the Gemini fallback. See
+[06-design-decisions.md](06-design-decisions.md).
 
 ## 6. Back to idle
 
