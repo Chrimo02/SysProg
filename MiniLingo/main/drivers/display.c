@@ -14,12 +14,12 @@ static const char *TAG = "display";
 
 #define LCD_HOST    SPI2_HOST
 
-#define PIN_NUM_SCK   GPIO_NUM_12
-#define PIN_NUM_MOSI  GPIO_NUM_11
-#define PIN_NUM_MISO  GPIO_NUM_13
-#define PIN_NUM_CS    GPIO_NUM_10
-#define PIN_NUM_DC    GPIO_NUM_8
-#define PIN_NUM_RST   GPIO_NUM_9
+#define PIN_NUM_SCK   GPIO_NUM_40
+#define PIN_NUM_MOSI  GPIO_NUM_41
+#define PIN_NUM_MISO  GPIO_NUM_39
+#define PIN_NUM_CS    GPIO_NUM_1
+#define PIN_NUM_DC    GPIO_NUM_42
+#define PIN_NUM_RST   GPIO_NUM_2
 
 #define LCD_PIXEL_CLOCK_HZ (20 * 1000 * 1000)
 

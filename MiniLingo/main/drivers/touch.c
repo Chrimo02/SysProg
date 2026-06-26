@@ -10,7 +10,7 @@
 static const char *TAG = "touch";
 
 #define TOUCH_HOST    SPI2_HOST
-#define PIN_NUM_T_CS  GPIO_NUM_14
+#define PIN_NUM_T_CS  GPIO_NUM_38
 
 // XPT2046 control bytes (12-bit mode, single-ended, power on).
 // Achtung: laut Datenblatt liest 0x90 die Y- und 0xD0 die X-Position —

@@ -10,13 +10,17 @@ the driver used by the app. Files: [drivers/](../../main/drivers/).
 |---|---|---|---|---|
 | Microphone | INMP441 | I2S0 RX | WS=4, SCK=5, SD=6 (L/R→GND) | [mic_test.c](../../main/mic_test.c) |
 | Amplifier | MAX98357A | I2S1 TX | BCLK=15, LRC=16, DIN=17 (SD→3V3, GAIN open) | [amp_test.c](../../main/amp_test.c) |
-| Display | ILI9341 | SPI2 | SCK=12, MOSI=11, MISO=13, CS=10, DC=8, RST=9 | [display_test.c](../../main/display_test.c) |
-| Touch | XPT2046 | SPI2 (shared) | CS=14, SCK/MOSI/MISO shared with display, IRQ unused | [touch_test.c](../../main/touch_test.c) |
+| Display | ILI9341 | SPI2 | SCK=40, MOSI=41, MISO=39, CS=1, DC=42, RST=2 | [display_test.c](../../main/display_test.c) |
+| Touch | XPT2046 | SPI2 (shared) | CS=38, SCK/MOSI/MISO shared with display, IRQ unused | [touch_test.c](../../main/touch_test.c) |
 
-Mic, amp, and display use deliberately separate GPIO groups so all can run at
-once; display and touch share SPI2 with separate chip-selects. Full wiring
-tables (with notes like the series-speaker arrangement) are in the archived
-[COMPONENT_TESTS-de.md](../archive/COMPONENT_TESTS-de.md).
+Mic and amp sit on the left header (GPIO4-17); display and touch were moved to
+the right header (GPIO1/2/38-42) to keep the breadboard wiring on two sides
+instead of one crowded edge. Display and touch share SPI2 with separate
+chip-selects. **GPIO35/36/37 are off-limits** on this N16R8 board even though
+they're broken out on the header — the chip uses them internally for the
+octal PSRAM, and GPIO0/19/20/43/44 are reserved for boot-strapping/USB/UART.
+Full wiring tables (with notes like the series-speaker arrangement) are in the
+archived [COMPONENT_TESTS-de.md](../archive/COMPONENT_TESTS-de.md).
 
 ## Microphone — audio_in
 
