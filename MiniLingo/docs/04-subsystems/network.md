@@ -44,7 +44,7 @@ TTS) or (tool call → run locally). Key pieces:
 language, file). The WAV is streamed in three `http_write_all` calls
 (prologue, the recording buffer, epilogue) so it never has to be copied.
 
-- Language hint from `config_whisper_language()` (default `de`) — without it
+- Language hint from `config_whisper_language()` (default `en`) — without it
   Whisper guesses, costing latency and accuracy.
 - Parses the `text` field, trims Whisper's leading space, rejects empty
   transcripts.
@@ -61,7 +61,10 @@ language, file). The WAV is streamed in three `http_write_all` calls
 `build_request()` assembles:
 - a **system** message = active **persona** (`s_persona`, set by
   `llm_set_system_prompt`) + `TOOL_INSTRUCTIONS` (kept in every persona so the
-  tools always work);
+  tools always work) + `LANGUAGE_INSTRUCTIONS`. The language clause pins the
+  reply to **English regardless of the transcript's language**, unless the user
+  explicitly asks for another language — without it the model just mirrors the
+  language Whisper returned and drifts into German;
 - the **conversation history** (from [state.c](../../main/state.c), mapped to
   user/assistant roles);
 - the new **user** turn;

@@ -37,6 +37,15 @@ static const char *TAG = "llm";
     "call the matching tool instead of replying in text. Convert minutes " \
     "to seconds."
 
+// Sprach-Anweisung (Stand 2026-06-30): das LLM spiegelt sonst die Sprache
+// des transkribierten Prompts — spricht der User Deutsch (oder steht
+// whisper_lang im NVS noch auf "de"), antwortet es Deutsch. Default ist
+// Englisch; Deutsch nur, wenn der User es im Turn ausdruecklich verlangt.
+// Wird ans Ende des System-Prompts gehaengt (Recency = hoehere Prioritaet).
+#define LANGUAGE_INSTRUCTIONS \
+    " Always answer in English, regardless of the language of the user's " \
+    "message, unless the user explicitly asks you to use another language."
+
 // Aktive Persona (Pointer auf ein statisches String-Literal aus main.c
 // oder das Default). Pointer-Tausch ist atomar genug: gesetzt aus dem
 // LVGL-Task, gelesen im network_task — schlimmstenfalls nutzt ein
@@ -133,8 +142,12 @@ static char *build_request(const char *user_text)
     cJSON_AddStringToObject(root, "model", config_llm_model());
 
     cJSON *messages = cJSON_AddArrayToObject(root, "messages");
-    char system[512];
-    snprintf(system, sizeof(system), "%s%s", s_persona, TOOL_INSTRUCTIONS);
+    // 768 statt 512: Persona (~250) + TOOL_INSTRUCTIONS (~280) +
+    // LANGUAGE_INSTRUCTIONS (~135) sprengen 512 und wurden frueher
+    // stillschweigend abgeschnitten.
+    char system[768];
+    snprintf(system, sizeof(system), "%s%s%s",
+             s_persona, TOOL_INSTRUCTIONS, LANGUAGE_INSTRUCTIONS);
     add_message(messages, "system", system);
     for (size_t i = 0; i < chat_history_count(); i++) {
         chat_role_t role;
