@@ -29,8 +29,8 @@ callback registered from `main.c`:
 
 - **Wi-Fi icon** → `on_wifi_clicked` → opens the setup portal
   ([config.md](config.md)).
-- **State text** → `on_character_clicked` → cycles Mycroft→Alexa→Jarvis (saves
-  to NVS and reboots).
+- **State text** → `on_character_clicked` → cycles Mycroft→Alexa→Jarvis (runtime
+  WakeNet swap, no reboot; also switchable by voice "switch to X").
 - **Volume** → opens a touch **slider** below the bar (auto-hides after 3 s).
   Because resistive touch is coarse and the chat container sits above it, the
   panel is moved to the foreground and given an extended click area.

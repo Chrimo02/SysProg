@@ -13,9 +13,12 @@ Two distinct boot loops came from overrunning it:
 - **Three WakeNets at once.** Loading Mycroft+Alexa+Jarvis together and
   filtering by index *looked* fine (the models loaded), but the very next
   step — creating the AFE task stacks — failed (`assert ok == pdPASS`) and the
-  device rebooted endlessly. Fix: load **one** WakeNet per boot; switch by
-  reboot. (The panic was initially missed because USB re-enumerates on every
-  reboot and swallowed the log.)
+  device rebooted endlessly. Fix: keep **one** WakeNet loaded. (The panic was
+  initially missed because USB re-enumerates on every reboot and swallowed the
+  log.) Switching originally rebooted to reload the model; Phase B2 replaced that
+  with a **runtime swap** — `destroy` then recreate the AFE with the new WakeNet
+  (peak still one model), coordinated so no task is mid-AFE-call. The AFE also
+  exposes only two wake-word slots, so three-at-once was never an option anyway.
 - **Too-large I2S-DMA buffer.** 24 KB DMA failed to allocate at boot
   (`ESP_ERROR_CHECK` → loop).
 

@@ -74,26 +74,35 @@ The portal is at `http://192.168.4.1`. No TLS on the local portal.
 
 ## Character switching
 
-Cycling characters (tap the state text → `on_character_clicked`) writes the new
-index to NVS and **reboots**. At boot, `config_character_index()` restores it and
-`app_main` sets:
+Characters switch **at runtime, without a reboot** (Phase B2). Two triggers, both
+funnel into `apply_character(idx)` in [main.c](../../main/main.c):
+- **Tap the state text** → `on_character_clicked` cycles to the next character
+  (LVGL task).
+- **Voice** → "switch to Jarvis" / "talk to Alexa" etc. are local MultiNet
+  commands (`CMD_CHARACTER_*`); the match (afe_fetch_task) posts the target index
+  via an atomic, and the LVGL task applies it.
 
+`apply_character` sets, all without reboot:
 - the **persona** system prompt (`llm_set_system_prompt`,
-  [llm.c](../../main/network/llm.c));
-- the **TTS voice** (`tts_set_voice`, [tts.c](../../main/network/tts.c));
-- the **wake word** (only that character's WakeNet is loaded,
-  [afe_pipeline.c](../../main/speech/afe_pipeline.c)).
+  [llm.c](../../main/network/llm.c)) — pointer swap;
+- the **TTS voices** (`tts_set_voice` + `tts_set_local_voice`,
+  [tts.c](../../main/network/tts.c));
+- persists the index to NVS (`config_set_character`);
+- the **wake word**, by requesting a runtime WakeNet swap
+  (`afe_pipeline_request_wakeword`) — the AFE destroys and recreates its instance
+  at the fetch-loop top (~100 ms), so only **one** WakeNet is ever in RAM at once
+  (three at once blow internal RAM). See [speech.md](speech.md) and
+  [06-design-decisions.md](../06-design-decisions.md).
 
-The `character_t` table (name, idle text, persona, voice) lives in
-[main.c](../../main/main.c). Switching reboots because three WakeNets can't be
-loaded at once (RAM) — see [speech.md](speech.md) and
-[06-design-decisions.md](../06-design-decisions.md).
+At boot, `config_character_index()` restores the last character and `app_main`
+sets the same persona/voices. The `character_t` table (name, idle text, persona,
+Gemini + Piper voice) lives in [main.c](../../main/main.c).
 
 ## Design notes & gotchas
 
 - **"Unprovisioned" = SSID is still the placeholder `"yourwifi"`.** That's the
   trigger for the auto-portal at boot; real Kconfig creds or NVS values count as
   provisioned.
-- Changing any setting that a running task already read (Wi-Fi, persona, voice,
-  model) takes effect after the reboot the portal/switcher performs — there's no
-  live re-read.
+- Changing a Wi-Fi/model setting via the portal takes effect after the reboot it
+  performs — there's no live re-read. The **character switch is the exception**:
+  persona/voice/wake-word all update live (see above), no reboot.

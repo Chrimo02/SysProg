@@ -33,9 +33,99 @@ static esp_afe_sr_data_t *s_afe_data;
 // vom afe_fetch_task mit dem naechsten AFE-Frame (~32 ms Latenz).
 static atomic_bool s_listen_request;
 
+// Charakter-Wechsel ohne Reboot (Phase B2):
+static srmodel_list_t *s_models;       // fuer create_from_config beim Reconfigure
+static int s_character_idx = -1;       // aktuell geladenes Wakeword (0/1/2)
+// -1 = keine Anforderung, sonst Ziel-Charakter. Gesetzt aus beliebigem
+// Task (afe_pipeline_request_wakeword), konsumiert im afe_fetch_task.
+static atomic_int s_reconfig_char;
+// Handshake zwischen fetch- (Reconfigure) und feed-Task: feed parkt,
+// damit waehrend destroy/create kein feed() auf s_afe_data laeuft.
+static atomic_bool s_feed_park;
+static atomic_bool s_feed_parked;
+
 void afe_pipeline_request_listening(void)
 {
     atomic_store(&s_listen_request, true);
+}
+
+void afe_pipeline_request_wakeword(int character_idx)
+{
+    atomic_store(&s_reconfig_char, character_idx);
+}
+
+// AFE mit dem Wakeword des Charakters bauen (aus init + reconfigure).
+// Setzt s_afe_handle/s_afe_data/s_character_idx; wendet Threshold an.
+static esp_err_t create_afe(int character_idx)
+{
+    afe_config_t *cfg =
+        afe_config_init("M", s_models, AFE_TYPE_SR, AFE_MODE_LOW_COST);
+    if (!cfg) {
+        ESP_LOGE(TAG, "afe_config_init failed");
+        return ESP_FAIL;
+    }
+    cfg->aec_init = false;
+    cfg->wakenet_init = true;
+    cfg->vad_init = true;
+    cfg->afe_perferred_core = 1;
+    cfg->afe_perferred_priority = 5;
+
+    const char *kw = (character_idx == 1)   ? "alexa"
+                     : (character_idx == 2) ? "jarvis"
+                                            : "mycroft";
+    char *wn = esp_srmodel_filter(s_models, ESP_WN_PREFIX, kw);
+    cfg->wakenet_model_name = wn;
+    cfg->wakenet_model_name_2 = NULL;
+    ESP_LOGI(TAG, "wakenet model: %s (character %d)",
+             wn ? wn : "(none)", character_idx);
+
+    s_afe_handle = esp_afe_handle_from_config(cfg);
+    s_afe_data = s_afe_handle->create_from_config(cfg);
+    afe_config_free(cfg);
+    if (!s_afe_data) {
+        ESP_LOGE(TAG, "AFE create_from_config failed");
+        return ESP_FAIL;
+    }
+
+    // Kconfig-Threshold (0-100) auf WakeNet-Range 0.0-1.0 mappen;
+    // Index 1 = erstes Wake Word. 0 = Model-Default belassen.
+#if CONFIG_WAKE_WORD_THRESHOLD > 0
+    s_afe_handle->set_wakenet_threshold(s_afe_data, 1,
+                                        CONFIG_WAKE_WORD_THRESHOLD / 100.0f);
+#endif
+    s_character_idx = character_idx;
+    return ESP_OK;
+}
+
+// Wakeword zur Laufzeit umstellen. NUR aus dem afe_fetch_task am
+// Schleifenkopf aufrufen (zwischen zwei fetch-Calls) — dann ist weder
+// fetch noch (nach dem Park-Handshake) feed in einem AFE-Call.
+static void reconfigure_wakeword(int character_idx)
+{
+    if (character_idx == s_character_idx) {
+        return;  // schon aktiv
+    }
+    int prev = s_character_idx;
+    ESP_LOGI(TAG, "reconfigure wakenet: character %d -> %d",
+             prev, character_idx);
+
+    // Feed-Task parken und warten, bis er wirklich aus feed() raus ist.
+    atomic_store(&s_feed_park, true);
+    while (!atomic_load(&s_feed_parked)) {
+        vTaskDelay(pdMS_TO_TICKS(5));
+    }
+
+    s_afe_handle->destroy(s_afe_data);
+    s_afe_data = NULL;
+    esp_err_t err = create_afe(character_idx);
+    if (err != ESP_OK && prev >= 0) {
+        ESP_LOGE(TAG, "reconfigure failed, restoring character %d", prev);
+        create_afe(prev);  // best effort: alte Pipeline zurueckholen
+    }
+
+    atomic_store(&s_feed_park, false);
+    ESP_LOGI(TAG, "wakenet reconfigured, free internal: %u B",
+             (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL));
 }
 
 static void afe_feed_task(void *arg)
@@ -52,6 +142,17 @@ static void afe_feed_task(void *arg)
     int chunks = 0;
 
     while (1) {
+        // Park-Handshake fuer den Wakeword-Reconfigure (Phase B2): der
+        // fetch-Task setzt s_feed_park, wir bestaetigen mit s_feed_parked
+        // und ruehren s_afe_data nicht an, bis er wieder freigibt.
+        if (atomic_load(&s_feed_park)) {
+            atomic_store(&s_feed_parked, true);
+            while (atomic_load(&s_feed_park)) {
+                vTaskDelay(pdMS_TO_TICKS(5));
+            }
+            atomic_store(&s_feed_parked, false);
+            continue;
+        }
         if (audio_in_read(buf, (size_t)chunk * channels) == ESP_OK) {
             // Mic-Pegel-Diagnose alle ~3s (Chunk = 32 ms), analog zu
             // mic_test.c. Debug-Level: fuer Gain-Tuning per
@@ -85,6 +186,14 @@ static void afe_fetch_task(void *arg)
     bool speak_session = false;
 
     while (1) {
+        // Charakter-Wechsel (Phase B2): Wakeword hier umstellen, zwischen
+        // zwei fetch-Calls — nie mitten in fetch_with_delay, und das
+        // vorige res ist ausgewertet (kein Use-after-free auf res->data).
+        int reconfig = atomic_exchange(&s_reconfig_char, -1);
+        if (reconfig >= 0) {
+            reconfigure_wakeword(reconfig);
+        }
+
         afe_fetch_result_t *res =
             s_afe_handle->fetch_with_delay(s_afe_data, portMAX_DELAY);
         if (!res || res->ret_value == ESP_FAIL) {
@@ -165,51 +274,18 @@ esp_err_t afe_pipeline_init(srmodel_list_t *models, int character_idx)
         ESP_LOGE(TAG, "no models in partition 'model' — flashed?");
         return ESP_FAIL;
     }
+    s_models = models;
+    atomic_store(&s_reconfig_char, -1);
 
-    // "M" = 1 Mic-Kanal, 16 kHz. WakeNet-Model kommt automatisch aus
-    // der Model-Partition (einziges einkompiliertes WakeNet), VAD ist im
-    // AFE_TYPE_SR-Default aktiv, AEC bleibt aus (Phase 8).
-    afe_config_t *cfg =
-        afe_config_init("M", models, AFE_TYPE_SR, AFE_MODE_LOW_COST);
-    if (!cfg) {
-        ESP_LOGE(TAG, "afe_config_init failed");
-        return ESP_FAIL;
+    // "M" = 1 Mic-Kanal, 16 kHz, VAD im AFE_TYPE_SR-Default, kein AEC.
+    // Nur das EINE Wakeword des aktiven Charakters laden (0=Mycroft,
+    // 1=Alexa, 2=Jarvis). Drei Wakenets gleichzeitig sprengen den
+    // internen RAM; der Wechsel tauscht das Modell zur Laufzeit
+    // (afe_pipeline_request_wakeword -> reconfigure_wakeword).
+    esp_err_t err = create_afe(character_idx);
+    if (err != ESP_OK) {
+        return err;
     }
-    cfg->aec_init = false;
-    cfg->wakenet_init = true;
-    cfg->vad_init = true;
-    cfg->afe_perferred_core = 1;
-    cfg->afe_perferred_priority = 5;
-
-    // Phase B: nur das EINE Wakeword des aktiven Charakters laden
-    // (0=Mycroft, 1=Alexa, 2=Jarvis). Drei Wakenets gleichzeitig sprengen
-    // den internen RAM (Task-Stack-Alloc schlaegt fehl, assert/Reboot-
-    // Loop). Alle drei Modelle liegen in der Partition; der Wechsel
-    // laedt das andere per Reboot (main.c on_character_clicked).
-    const char *kw = (character_idx == 1)   ? "alexa"
-                     : (character_idx == 2) ? "jarvis"
-                                            : "mycroft";
-    char *wn = esp_srmodel_filter(models, ESP_WN_PREFIX, kw);
-    cfg->wakenet_model_name = wn;
-    cfg->wakenet_model_name_2 = NULL;
-    ESP_LOGI(TAG, "wakenet model: %s (character %d)",
-             wn ? wn : "(none)", character_idx);
-
-    s_afe_handle = esp_afe_handle_from_config(cfg);
-    s_afe_data = s_afe_handle->create_from_config(cfg);
-    afe_config_free(cfg);
-    if (!s_afe_data) {
-        ESP_LOGE(TAG, "AFE create_from_config failed");
-        return ESP_FAIL;
-    }
-
-    // Kconfig-Threshold (0-100) auf WakeNet-Range 0.0-1.0 mappen;
-    // Index 1 = erstes Wake Word. 0 = Model-Default belassen
-    // (siehe Model-Info-String im Boot-Log).
-#if CONFIG_WAKE_WORD_THRESHOLD > 0
-    s_afe_handle->set_wakenet_threshold(s_afe_data, 1,
-                                        CONFIG_WAKE_WORD_THRESHOLD / 100.0f);
-#endif
 
     BaseType_t ok;
     ok = xTaskCreatePinnedToCore(afe_feed_task, "afe_feed", 4096, NULL, 5,

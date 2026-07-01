@@ -23,8 +23,10 @@ in [archive/PROGRESS-sessions-de.md](archive/PROGRESS-sessions-de.md).
 | 10 | Function/tool calling for free timer/volume values | ✅ done |
 | A | Wi-Fi setup portal (runtime provisioning) | ✅ done |
 | B | Character / wake-word switcher (Mycroft/Alexa/Jarvis) | ✅ done |
+| B2 | Runtime WakeNet swap (no reboot) + voice character switch | ✅ done |
 | — | Per-character personas + per-character TTS voices | ✅ done |
 | — | Local Piper TTS server as primary source (Gemini fallback) | ✅ done |
+| — | DS18B20 temperature sensor + local temperature command | ✅ done |
 
 The assistant is **feature-complete** for its intended scope. The only
 unfinished phase is AEC, which is optional.
@@ -36,6 +38,10 @@ flashed but still want a real on-device pass:
 
 - **Per-character personas + voices** (latest change) — builds; confirm on
   hardware that the three characters sound and behave distinctly.
+- **Runtime WakeNet swap + voice switch (B2)** — builds + flashes + boots clean;
+  needs the voice test on device: say "switch to Jarvis", confirm the bubble,
+  persona/voice change, **no reboot** in the log (`reconfigure wakenet ...` +
+  `free internal` line), then wake with the new name. Also tap-to-cycle.
 - **Tool calling (Phase 10)** — build green; run the device test: set/cancel a
   timer with an odd value, ask time left, set an odd volume, and a general
   question (must stay a text answer, not a tool call).

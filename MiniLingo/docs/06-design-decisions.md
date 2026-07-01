@@ -73,15 +73,21 @@ swap), the local voice via `tts_set_local_voice` and the Gemini voice via
 `tts_set_voice`, all at boot — mirroring one pattern. The Piper voice names
 (`jarvis`/`mycroft`/`alexa`) line up 1:1 with the characters.
 
-## Reboot to switch characters (one WakeNet per boot)
+## One WakeNet at a time — runtime swap, no reboot (Phase B2)
 
-**Decision:** switching character saves the index to NVS and reboots; only the
-active character's WakeNet is loaded.
-**Why:** loading all three WakeNets at once exhausts internal SRAM — the AFE
-task stacks fail to allocate and the device boot-loops. All three models live in
-flash; loading one is well within budget. A reboot (~3 s) is an acceptable price
-for a rare action, and it sidesteps any live-reconfiguration complexity. (The
-live-filter approach was tried and failed — see
+**Decision:** only the active character's WakeNet is loaded; switching character
+swaps the model **at runtime** (AFE destroy + recreate), no reboot. Triggered by
+tapping the state text or by voice ("switch to Jarvis").
+**Why:** loading all three WakeNets at once exhausts internal SRAM — the AFE task
+stacks fail to allocate and the device boot-loops. The AFE also has only two
+wake-word slots (`wakenet_model_name` + `_2`), so all three can never be live
+together anyway. So we keep exactly one loaded and swap it. The swap runs in the
+`afe_fetch_task` at the loop top (between two `fetch` calls) after parking the
+feed task via a handshake — so no task is inside an AFE call while the instance is
+destroyed. It's RAM-safe because **destroy happens before create** (peak = one
+model, like boot). ~100 ms of deafness during the swap is acceptable for a rare
+action. (Originally this rebooted; the earlier live-*filter* attempt — swapping
+the model on a live AFE without recreate — failed, see
 [07-lessons-learned.md](07-lessons-learned.md).)
 
 ## One TLS connection at a time; mbedTLS in PSRAM

@@ -31,6 +31,12 @@ typedef enum {
     CMD_VOLUME_80 = 18,   // "volume eighty percent"
     CMD_VOLUME_100 = 19,  // "volume one hundred percent"
     CMD_TEMPERATURE = 20, // "temperature" / "what is the temperature"
+    // Charakter-Wechsel per Voice (Phase B2): IDs fortlaufend, damit
+    // (id - CMD_CHARACTER_MYCROFT) direkt der Charakter-Index 0/1/2 ist
+    // (Reihenfolge = s_characters[] in main.c).
+    CMD_CHARACTER_MYCROFT = 21, // "switch to mycroft"
+    CMD_CHARACTER_ALEXA = 22,   // "switch to alexa"
+    CMD_CHARACTER_JARVIS = 23,  // "switch to jarvis"
 } command_id_t;
 
 // Match-Callback. Laeuft im afe_fetch_task (Core 1) — keine LVGL-Calls,

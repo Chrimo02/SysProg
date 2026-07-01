@@ -118,6 +118,14 @@ static const struct {
     { CMD_TEMPERATURE,  "whats the temperature",            "WcTS jc TfMPRcpk" },
     { CMD_TEMPERATURE,  "whats the current temperature",    "WcTS jc KkcNT TfMPRcpk" },
     { CMD_TEMPERATURE,  "how warm is it",                   "ht WeRM gZ gT" },
+    // Charakter-Wechsel (Phase B2): Phoneme per multinet_g2p.py. Der
+    // Wechsel laeuft ohne Reboot (AFE-Reconfigure, s. main.c/afe_pipeline).
+    { CMD_CHARACTER_MYCROFT, "switch to mycroft", "SWgp To MiKReFT" },
+    { CMD_CHARACTER_MYCROFT, "talk to mycroft",   "TeK To MiKReFT" },
+    { CMD_CHARACTER_ALEXA,   "switch to alexa",   "SWgp To cLfKSc" },
+    { CMD_CHARACTER_ALEXA,   "talk to alexa",     "TeK To cLfKSc" },
+    { CMD_CHARACTER_JARVIS,  "switch to jarvis",  "SWgp To qnRVcS" },
+    { CMD_CHARACTER_JARVIS,  "talk to jarvis",    "TeK To qnRVcS" },
 };
 
 static const esp_mn_iface_t *s_multinet;

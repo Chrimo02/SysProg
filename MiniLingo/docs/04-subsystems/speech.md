@@ -22,11 +22,14 @@ Config (esp-sr 2.x API, not the spec's V1 macro): `afe_config_init("M", models,
 AFE_TYPE_SR, AFE_MODE_LOW_COST)` with `aec_init=false`, `wakenet_init=true`,
 `vad_init=true`, pinned to core 1 / prio 5.
 
-**One wake word per boot.** `afe_pipeline_init(models, character_idx)` selects
-exactly one WakeNet model by character (0=Mycroft→"mycroft", 1=Alexa→"alexa",
-2=Jarvis→"jarvis") via `esp_srmodel_filter`. All three live in flash, but
-loading more than one at boot exhausts internal RAM (AFE task-stack alloc fails
-→ boot loop). Character switching reboots — see
+**One wake word loaded at a time.** `afe_pipeline_init(models, character_idx)`
+selects exactly one WakeNet model by character (0=Mycroft→"mycroft",
+1=Alexa→"alexa", 2=Jarvis→"jarvis") via `esp_srmodel_filter`. All three live in
+flash, but loading more than one exhausts internal RAM (AFE task-stack alloc fails
+→ boot loop). Character switching swaps the model **at runtime without a reboot**
+(`afe_pipeline_request_wakeword` → `reconfigure_wakeword`: park the feed task,
+`destroy`, recreate with the new WakeNet, ~100 ms). The swap runs in the
+`afe_fetch_task` at the loop top so no task is mid-AFE-call during `destroy`. See
 [config.md](config.md) and [07-lessons-learned.md](../07-lessons-learned.md).
 
 The optional `CONFIG_WAKE_WORD_THRESHOLD` (0–100, 0 = model default) maps to the

@@ -26,14 +26,16 @@ case). Those reasons are spelled out in
 
 ## What it can do
 
-- **Wake on "Mycroft" / "Alexa" / "Jarvis"** (one active at a time) or on a
-  **touch** of the on-screen mic button.
+- **Wake on "Mycroft" / "Alexa" / "Jarvis"** (one active at a time; switch by
+  voice or tap, no reboot) or on a **touch** of the on-screen mic button.
 - **Local commands** (recognized on-device, English):
   - Kitchen timer: set 30 s / 1 / 5 / 10 / 15 / 30 min, cancel, ask time left.
   - Volume: up, down, set to 20/40/60/80/100 %, mute, unmute.
   - "stop": stops playback (and cancels a running timer when not speaking).
   - Temperature: "temperature" / "what is the temperature" / "whats the current
     temperature" / "how warm is it" — reads DS18B20 on GPIO 47.
+  - Character switch: "switch to Mycroft / Alexa / Jarvis" (also "talk to X") —
+    swaps persona, voice and wake word at runtime, no reboot.
 - **Free-form questions** → transcribed, answered by the LLM, shown as a chat
   bubble, and optionally spoken.
 - **Tool calling**: the LLM can set arbitrary timer/volume values that the

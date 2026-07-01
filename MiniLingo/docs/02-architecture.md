@@ -157,8 +157,10 @@ around this:
   `network_task`; two concurrent handshakes would exhaust the heap.
 - **Only one wake-word model loaded at a time.** All three character models are
   in flash, but loading all three at boot exhausted internal SRAM (the AFE task
-  stacks failed to allocate → boot loop). Switching characters reboots and
-  loads just the chosen one. See [07-lessons-learned.md](07-lessons-learned.md).
+  stacks failed to allocate → boot loop); the AFE also has only two wake-word
+  slots. Switching characters swaps the model **at runtime** (AFE destroy +
+  recreate, ~100 ms), no reboot — by tap or by voice ("switch to Jarvis"). See
+  [07-lessons-learned.md](07-lessons-learned.md).
 - **`CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL=16384`**: allocations ≤16 KB prefer
   internal RAM; larger ones fall to PSRAM by default.
 

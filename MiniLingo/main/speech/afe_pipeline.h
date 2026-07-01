@@ -12,9 +12,19 @@
 // Erwartet initialisiertes audio_in (audio_in_init).
 // character_idx (Phase B) waehlt das EINE zu ladende Wakeword
 // (0=Mycroft, 1=Alexa, 2=Jarvis). Drei Wakenets gleichzeitig sprengen
-// den internen RAM (Task-Stack-Alloc schlaegt fehl) — der Charakter-
-// Switcher laedt deshalb nur das aktive Modell und rebootet beim Wechsel.
+// den internen RAM (Task-Stack-Alloc schlaegt fehl) — es wird deshalb
+// immer nur das aktive Modell geladen; der Wechsel tauscht es zur
+// Laufzeit (afe_pipeline_request_wakeword), ohne Reboot.
 esp_err_t afe_pipeline_init(srmodel_list_t *models, int character_idx);
+
+// Charakter-Wechsel (Phase B2): fordert an, das WakeNet-Modell zur
+// Laufzeit auf character_idx umzustellen (destroy + recreate). Nur ein
+// atomares Flag; die eigentliche Umstellung macht der afe_fetch_task am
+// naechsten Schleifenkopf (zwischen zwei fetch-Calls), damit kein Task
+// mitten in einem AFE-Call den Buffer unter sich wegzieht. Aus jedem
+// Task-Kontext aufrufbar. RAM-sicher, weil destroy VOR create laeuft
+// (Peak = 1 Modell, wie beim Boot).
+void afe_pipeline_request_wakeword(int character_idx);
 
 // Touch-Trigger (Spec Section 2: "Wake Word | Touch"): startet eine
 // Listening-Session wie nach dem Wake Word, nur ohne WakeNet. Aus

@@ -103,6 +103,10 @@ static atomic_bool s_wake_event;
 // geschrieben (einziger Writer: afe_fetch_task).
 static atomic_int s_cmd_event;
 static atomic_int s_cmd_arg;
+// Charakter-Wechsel per Voice (Phase B2): Ziel-Index, gesetzt im
+// afe_fetch_task (on_local_command), angewandt im LVGL-Task
+// (apply_character). -1 = kein Event.
+static atomic_int s_character_event;
 static atomic_bool s_timer_done_event;
 // Cloud-Pipeline (Phase 5-7): processing = Upload gestartet
 // (afe_fetch_task), transcript/reply/speaking/done/error = Fortschritt
@@ -193,25 +197,40 @@ static void on_wifi_clicked(void)
     ui_chat_add_local_bubble("Browser: http://192.168.4.1");
 }
 
-static void reboot_task(void *arg)
+// Charakter aktiv schalten OHNE Reboot (Phase B2). Nur im LVGL-Task
+// aufrufen: setzt Persona/Stimmen (Pointer-Swaps, aus jedem Task ok),
+// persistiert den Index, stellt das Wakeword zur Laufzeit um (die AFE
+// macht das selbst am fetch-Schleifenkopf) und zeigt eine Bubble. Der
+// Idle-Text zieht ueber update_state_text() nach (liest s_character).
+static void apply_character(int idx)
 {
-    vTaskDelay(pdMS_TO_TICKS(1200));  // Bubble kurz sichtbar lassen
-    esp_restart();
+    if (idx < 0 || idx >= (int)NUM_CHARACTERS) {
+        return;
+    }
+    bool same = (idx == s_character);
+    s_character = idx;
+    const character_t *c = &s_characters[idx];
+
+    llm_set_system_prompt(c->persona);
+    tts_set_voice(c->voice);
+    tts_set_local_voice(c->local_voice);
+    config_set_character(idx);
+    // Wakeword nur bei echtem Wechsel neu laden (destroy/create kostet
+    // ~100 ms Taubheit — bei gleichem Charakter unnoetig).
+    if (!same) {
+        afe_pipeline_request_wakeword(idx);
+    }
+
+    char bubble[40];
+    snprintf(bubble, sizeof(bubble), "Switched to %s", c->name);
+    ui_chat_add_local_bubble(bubble);
 }
 
 static void on_character_clicked(void)
 {
-    // LVGL-Task-Kontext. Nächsten Charakter wählen, in NVS speichern und
-    // neu starten: drei Wakenets gleichzeitig sprengen den internen RAM,
-    // deshalb lädt der Boot nur das eine aktive Wakeword (afe_pipeline).
-    s_character = (s_character + 1) % NUM_CHARACTERS;
-    const character_t *c = &s_characters[s_character];
-    config_set_character(s_character);
-
-    char bubble[40];
-    snprintf(bubble, sizeof(bubble), "Switching to %s...", c->name);
-    ui_chat_add_local_bubble(bubble);
-    xTaskCreate(reboot_task, "reboot", 2048, NULL, 5, NULL);
+    // LVGL-Task-Kontext. Nächsten Charakter wählen — kein Reboot mehr:
+    // das Wakeword wird zur Laufzeit getauscht (afe_pipeline, Phase B2).
+    apply_character((s_character + 1) % NUM_CHARACTERS);
 }
 
 static void on_wifi_status(bool connected)
@@ -410,6 +429,15 @@ static void on_local_command(command_id_t id, const char *phrase,
             cloud_speak(say);
         }
         break;
+    case CMD_CHARACTER_MYCROFT:
+    case CMD_CHARACTER_ALEXA:
+    case CMD_CHARACTER_JARVIS:
+        // Charakter-Wechsel (Phase B2): den eigentlichen Swap macht der
+        // LVGL-Task (apply_character) — hier nur den Ziel-Index melden.
+        // IDs liegen fortlaufend, Index = id - CMD_CHARACTER_MYCROFT.
+        // Kein s_cmd_event: die Bubble kommt aus apply_character.
+        atomic_store(&s_character_event, (int)id - CMD_CHARACTER_MYCROFT);
+        return;
     }
 
     atomic_store(&s_cmd_arg, arg);
@@ -589,6 +617,12 @@ static void app_event_timer_cb(lv_timer_t *timer)
         ui_chat_add_local_bubble("Timer done!");
     }
 
+    // Charakter-Wechsel per Voice (Phase B2): im LVGL-Task anwenden.
+    int chr = atomic_exchange(&s_character_event, -1);
+    if (chr >= 0) {
+        apply_character(chr);
+    }
+
     update_state_text();
     update_volume_display();
 }
@@ -619,6 +653,8 @@ void app_main(void)
     llm_set_system_prompt(s_characters[s_character].persona);
     tts_set_voice(s_characters[s_character].voice);
     tts_set_local_voice(s_characters[s_character].local_voice);
+    // -1 = kein Charakter-Wechsel angefordert (0 waere Mycroft).
+    atomic_store(&s_character_event, -1);
 
     lv_init();
     lv_tick_set_cb(lvgl_tick_get_cb);
