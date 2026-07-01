@@ -94,6 +94,11 @@ funnel into `apply_character(idx)` in [main.c](../../main/main.c):
   (three at once blow internal RAM). See [speech.md](speech.md) and
   [06-design-decisions.md](../06-design-decisions.md).
 
+On a real switch (not re-selecting the active one) the new character also speaks
+a short in-character **greeting** (per-character `greeting` field) via
+`cloud_speak()` in its own Piper voice — only when TTS is enabled, like the
+temperature announcement.
+
 At boot, `config_character_index()` restores the last character and `app_main`
 sets the same persona/voices. The `character_t` table (name, idle text, persona,
 Gemini + Piper voice) lives in [main.c](../../main/main.c).

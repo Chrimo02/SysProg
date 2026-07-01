@@ -65,6 +65,7 @@ typedef struct {
     const char *persona;
     const char *voice;        // Gemini-Stimme (Fallback-TTS)
     const char *local_voice;  // Piper-Stimme des lokalen Servers (primaer)
+    const char *greeting;     // kurzer Begruessungssatz nach dem Switch
 } character_t;
 
 static const character_t s_characters[] = {
@@ -73,16 +74,19 @@ static const character_t s_characters[] = {
       "personality, like the older brother of Sherlock Holmes. You "
       "speak in a refined, courteous manner, occasionally offer a "
       "sharp observation or a subtle thought, and remain unfailingly "
-      "considerate.", "Charon", "mycroft" },
+      "considerate.", "Charon", "mycroft",
+      "A pleasure. Mycroft here, entirely at your disposal." },
     { "Alexa", "Listening for Alexa",
       "You are Alexa, a friendly and helpful voice assistant in the "
       "style of Amazon's Alexa: casual, warm and straightforward.",
-      "Aoede", "alexa" },
+      "Aoede", "alexa",
+      "Hey there! Alexa here. What can I do for you?" },
     { "Jarvis", "Listening for Jarvis",
       "You are Jarvis, a highly technical AI in the style of Iron "
       "Man's J.A.R.V.I.S.: precise, matter-of-fact, thinking in "
       "technical detail, and addressing the user formally as 'Sir'.",
-      "Fenrir", "jarvis" },
+      "Fenrir", "jarvis",
+      "Jarvis online. At your service, Sir." },
 };
 #define NUM_CHARACTERS (sizeof(s_characters) / sizeof(s_characters[0]))
 
@@ -216,9 +220,13 @@ static void apply_character(int idx)
     tts_set_local_voice(c->local_voice);
     config_set_character(idx);
     // Wakeword nur bei echtem Wechsel neu laden (destroy/create kostet
-    // ~100 ms Taubheit — bei gleichem Charakter unnoetig).
+    // ~100 ms Taubheit — bei gleichem Charakter unnoetig) und den neuen
+    // Charakter kurz begruessen lassen (in seiner Stimme — die ist oben
+    // schon gesetzt; cloud_speak nutzt sie im lokalen Piper). Die
+    // Begruessung kommt nur bei aktivem TTS, wie bei der Temperatur.
     if (!same) {
         afe_pipeline_request_wakeword(idx);
+        cloud_speak(c->greeting);
     }
 
     char bubble[40];
