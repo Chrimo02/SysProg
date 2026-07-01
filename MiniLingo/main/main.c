@@ -618,9 +618,17 @@ static void app_event_timer_cb(lv_timer_t *timer)
     }
 
     // Charakter-Wechsel per Voice (Phase B2): im LVGL-Task anwenden.
+    // Gleiches UI-Feedback wie ein lokaler Command (s_cmd_event oben):
+    // Listening beenden, kurz gruen, dann zurueck auf Idle — sonst bliebe
+    // die Bar auf "Listening..." haengen (der Recorder ist da laengst
+    // per recorder_abort() gestoppt, nur der UI-State fehlte).
     int chr = atomic_exchange(&s_character_event, -1);
     if (chr >= 0) {
         apply_character(chr);
+        s_listening = false;
+        ui_mic_button_set_state(UI_MIC_LOCAL_RESPONSE);
+        lv_timer_set_repeat_count(
+            lv_timer_create(mic_button_reset_cb, 800, NULL), 1);
     }
 
     update_state_text();
