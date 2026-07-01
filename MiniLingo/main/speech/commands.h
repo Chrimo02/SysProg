@@ -30,6 +30,7 @@ typedef enum {
     CMD_VOLUME_60 = 17,   // "volume sixty percent"
     CMD_VOLUME_80 = 18,   // "volume eighty percent"
     CMD_VOLUME_100 = 19,  // "volume one hundred percent"
+    CMD_TEMPERATURE = 20, // "temperature" / "what is the temperature"
 } command_id_t;
 
 // Match-Callback. Laeuft im afe_fetch_task (Core 1) — keine LVGL-Calls,

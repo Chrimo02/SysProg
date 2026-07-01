@@ -15,6 +15,7 @@
 // (esp_timer-Task) duerfen LVGL nicht direkt anfassen — sie setzen
 // atomare Flags, die ein LVGL-Timer (app_event_timer_cb, laeuft im
 // lvgl_task) abholt und in UI-Updates uebersetzt.
+#include <limits.h>
 #include <stdatomic.h>
 #include <stdio.h>
 #include <string.h>
@@ -35,6 +36,7 @@
 #include "drivers/display.h"
 #include "drivers/touch.h"
 #include "local/canned_audio.h"
+#include "local/temperature.h"
 #include "local/timer.h"
 #include "local/volume.h"
 #include "config.h"
@@ -398,6 +400,16 @@ static void on_local_command(command_id_t id, const char *phrase,
         arg = volume_get();
         canned_audio_play(CANNED_UNMUTED);
         break;
+    case CMD_TEMPERATURE:
+        arg = temperature_valid()
+                  ? (int)(temperature_get() + 0.5f)
+                  : INT_MIN;
+        if (arg != INT_MIN && cloud_tts_enabled()) {
+            char say[64];
+            snprintf(say, sizeof(say), "The temperature is %d degrees", arg);
+            cloud_speak(say);
+        }
+        break;
     }
 
     atomic_store(&s_cmd_arg, arg);
@@ -438,6 +450,13 @@ static void format_command_bubble(command_id_t id, int arg, char *text,
     case CMD_VOLUME_100:
     case CMD_UNMUTE:      snprintf(text, len, "Volume: %d%%", arg); break;
     case CMD_MUTE:        snprintf(text, len, "Muted"); break;
+    case CMD_TEMPERATURE:
+        if (arg != INT_MIN) {
+            snprintf(text, len, "Temperature: %d" "\xc2\xb0" "C", arg);
+        } else {
+            snprintf(text, len, "Sensor not ready");
+        }
+        break;
     default:              snprintf(text, len, "Command %d", (int)id); break;
     }
 }
@@ -645,6 +664,10 @@ void app_main(void)
     ui_status_bar_set_volume(volume_get());
     ESP_ERROR_CHECK(canned_audio_init());
     kitchen_timer_init(on_timer_done);
+    // DS18B20: Fehler nicht fatal — Sensor koennte nicht angeschlossen sein.
+    if (temperature_init() != ESP_OK) {
+        ESP_LOGW(TAG, "temperature sensor not found");
+    }
 
     // Speech-Pipeline: Models einmal laden, dann MultiNet (commands)
     // VOR dem Pipeline-Start initialisieren — der fetch-Task fuettert

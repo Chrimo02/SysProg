@@ -76,6 +76,28 @@ contract between the script and the firmware (`canned_audio.h`); change both
 sides together. See [05-build-and-setup.md](../05-build-and-setup.md) for
 regenerating them.
 
+## Temperature sensor — temperature.c
+
+[temperature.c](../../main/local/temperature.c). DS18B20 on 1-Wire, GPIO 48,
+4.7 kΩ pull-up to 3V3. Driver is self-contained (no external component): GPIO bit-bang via
+`ets_delay_us` (IDF5 `rom/ets_sys.h`), with a Maxim DOW CRC check.
+
+- A 12-bit conversion takes ~750 ms, so the measurement runs in a periodic
+  `esp_timer` callback (one-shot rearmed every 10 s). The callback blocks with
+  `vTaskDelay(800 ms)` while the DS18B20 converts.
+- `s_milli_celsius` (atomic int) holds the cached value; `s_valid` (atomic bool)
+  becomes true after the first successful read and false on CRC/bus errors.
+- `temperature_get()` and `temperature_valid()` are safe from any task (used in
+  `on_local_command`, which runs in afe_fetch_task).
+- `temperature_init()` returns `ESP_ERR_NOT_FOUND` if no DS18B20 is on the bus —
+  treated as a warning, not a boot failure.
+
+The temperature command (`CMD_TEMPERATURE`, phrase "temperature" / "what is the
+temperature") is recognized locally by MultiNet without a Whisper/LLM round-trip.
+If TTS is enabled, the spoken value ("The temperature is N degrees") is routed
+through `cloud_speak()` → `network_task` → local Piper server. The exact value
+always appears as a display bubble regardless of TTS state.
+
 ## Design notes & gotchas
 
 - **One player, one queue, blocking PCM** is what makes "stop" and
@@ -83,7 +105,8 @@ regenerating them.
   proposed one).
 - Variable values can't be spoken by fixed phrases — e.g. "time left" plays a
   generic "the remaining time is on the display" and the exact value shows in
-  the bubble/status bar. Real spoken values need cloud TTS.
+  the bubble/status bar. The temperature command uses `cloud_speak()` for a
+  dynamic spoken value (via the local Piper server), which does require WiFi.
 - Everything here is callable from the network task because the timer/volume
   state is atomic and `canned_audio_play` only enqueues — which is exactly what
   the cloud tool-calls rely on.

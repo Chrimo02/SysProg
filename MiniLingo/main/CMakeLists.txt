@@ -10,6 +10,7 @@ idf_component_register(
          "drivers/audio_in.c"
          "drivers/audio_out.c"
          "local/canned_audio.c"
+         "local/temperature.c"
          "local/timer.c"
          "local/volume.c"
          "network/wifi.c"

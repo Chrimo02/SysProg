@@ -30,9 +30,14 @@ static const char *TAG = "cloud";
 // Gemini-Antwort: maxOutputTokens=200 bleibt unter 1 KB Text.
 #define REPLY_MAX 1024
 
+// speak_only = true: kein Whisper/LLM, nur speak_reply(text).
+// text wird bei cloud_speak() per Wert reinkopiert.
+#define SPEAK_TEXT_MAX 80
 typedef struct {
     const uint8_t *wav;
     size_t bytes;
+    bool speak_only;
+    char text[SPEAK_TEXT_MAX];
 } cloud_job_t;
 
 static QueueHandle_t s_queue;
@@ -141,7 +146,16 @@ static void network_task(void *arg)
     while (1) {
         xQueueReceive(s_queue, &job, portMAX_DELAY);
 
-        if (!wifi_is_connected()) {
+        if (job.speak_only) {
+            // Lokale TTS-Ansage (kein Whisper/LLM): nur sprechen, wenn
+            // TTS an und WiFi vorhanden; sonst still verwerfen.
+            if (!wifi_is_connected()) {
+                ESP_LOGW(TAG, "speak_only: no WiFi, skipping TTS");
+            } else if (atomic_load(&s_tts_enabled)) {
+                speak_reply(job.text);
+            }
+            s_cb(CLOUD_EVT_DONE, "");
+        } else if (!wifi_is_connected()) {
             ESP_LOGW(TAG, "no WiFi, dropping query");
             s_cb(CLOUD_EVT_ERROR, "No WiFi connection");
         } else if (whisper_transcribe(job.wav, job.bytes, text,
@@ -233,4 +247,15 @@ void cloud_set_tts_enabled(bool enabled)
 bool cloud_tts_enabled(void)
 {
     return atomic_load(&s_tts_enabled);
+}
+
+void cloud_speak(const char *text)
+{
+    if (atomic_exchange(&s_busy, true)) {
+        ESP_LOGW(TAG, "cloud_speak: pipeline busy, dropping");
+        return;
+    }
+    cloud_job_t job = { .speak_only = true };
+    snprintf(job.text, sizeof(job.text), "%s", text);
+    xQueueSend(s_queue, &job, 0);
 }

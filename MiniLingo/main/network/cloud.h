@@ -48,3 +48,10 @@ bool cloud_is_speaking(void);
 // speichersparsam wie bisher. Atomar, aus jedem Task aufrufbar.
 void cloud_set_tts_enabled(bool enabled);
 bool cloud_tts_enabled(void);
+
+// Spricht text ueber den lokalen Piper-TTS ohne Whisper/LLM-Roundtrip.
+// Nur aktiv, wenn cloud_tts_enabled() && WiFi verbunden. Verwendet
+// denselben Busy-Gate wie cloud_submit — bei belegter Pipeline wird der
+// Aufruf verworfen (Bubble steht ohnehin schon im Display).
+// Aufruf aus afe_fetch_task (on_local_command); text wird kopiert.
+void cloud_speak(const char *text);
