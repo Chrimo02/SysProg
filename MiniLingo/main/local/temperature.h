@@ -8,7 +8,7 @@
 // in einem periodischen esp_timer; temperature_get() liefert sofort
 // den zuletzt gecachten Wert ohne Bus-I/O.
 
-#define TEMP_ONEWIRE_GPIO 48
+#define TEMP_ONEWIRE_GPIO 47
 
 // Startet Bus und esp_timer. Erste Messung nach ~1 s.
 esp_err_t temperature_init(void);

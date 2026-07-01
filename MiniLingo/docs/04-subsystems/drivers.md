@@ -12,7 +12,7 @@ the driver used by the app. Files: [drivers/](../../main/drivers/).
 | Amplifier | MAX98357A | I2S1 TX | BCLK=15, LRC=16, DIN=17 (SD→3V3, GAIN open) | [amp_test.c](../../main/amp_test.c) |
 | Display | ILI9341 | SPI2 | SCK=40, MOSI=41, MISO=39, CS=1, DC=42, RST=2 | [display_test.c](../../main/display_test.c) |
 | Touch | XPT2046 | SPI2 (shared) | CS=38, SCK/MOSI/MISO shared with display, IRQ unused | [touch_test.c](../../main/touch_test.c) |
-| Temp sensor | DS18B20 | 1-Wire | DQ=48, + 4.7 kΩ pull-up to 3V3 | — |
+| Temp sensor | DS18B20 | 1-Wire | DQ=47, + 4.7 kΩ pull-up to 3V3 | — |
 
 Mic and amp sit on the left header (GPIO4-17); display and touch were moved to
 the right header (GPIO1/2/38-42) to keep the breadboard wiring on two sides

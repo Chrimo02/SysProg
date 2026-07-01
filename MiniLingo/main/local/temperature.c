@@ -221,6 +221,20 @@ esp_err_t temperature_init(void)
     }
     ESP_LOGI(TAG, "DS18B20 detected on GPIO %d", TEMP_ONEWIRE_GPIO);
 
+    // Erste Messung synchron im Init: Wandlung auslösen, kurz warten,
+    // sofort lesen — so ist der Wert beim ersten User-Command bereits
+    // gueltig (kein "Sensor not ready" nach dem Boot/Charakter-Wechsel).
+    err = ds_convert();
+    if (err == ESP_OK) {
+        vTaskDelay(pdMS_TO_TICKS(CONVERT_WAIT_MS));
+        float temp;
+        if (ds_read_temp(&temp) == ESP_OK) {
+            atomic_store(&s_milli_celsius, (int)(temp * 1000.0f));
+            atomic_store(&s_valid, true);
+            ESP_LOGI(TAG, "initial: %.1f degC", temp);
+        }
+    }
+
     esp_timer_create_args_t ta = {
         .callback = measure_cb,
         .name     = "temp_measure",
@@ -229,8 +243,7 @@ esp_err_t temperature_init(void)
     if (err != ESP_OK) {
         return err;
     }
-    // Erste Messung nach 1 s.
-    return esp_timer_start_once(s_timer, 1000 * 1000);
+    return esp_timer_start_once(s_timer, MEASURE_INTERVAL_US);
 }
 
 float temperature_get(void)

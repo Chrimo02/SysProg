@@ -112,9 +112,12 @@ static const struct {
                                                   "VnLYoM WcN hcNDRcD PkSfNT" },
     // Temperatur: Phoneme per multinet_g2p.py (2026-07-01); On-Device-
     // G2P misshandelt "temperature" aehnlich wie "minute" (MgNoT).
-    { CMD_TEMPERATURE,  "temperature",             "TfMPRcpk" },
-    { CMD_TEMPERATURE,  "what is the temperature", "WcT gZ jc TfMPRcpk" },
-    { CMD_TEMPERATURE,  "current temperature",     "KkcNT TfMPRcpk" },
+    { CMD_TEMPERATURE,  "temperature",                      "TfMPRcpk" },
+    { CMD_TEMPERATURE,  "what is the temperature",          "WcT gZ jc TfMPRcpk" },
+    { CMD_TEMPERATURE,  "current temperature",              "KkcNT TfMPRcpk" },
+    { CMD_TEMPERATURE,  "whats the temperature",            "WcTS jc TfMPRcpk" },
+    { CMD_TEMPERATURE,  "whats the current temperature",    "WcTS jc KkcNT TfMPRcpk" },
+    { CMD_TEMPERATURE,  "how warm is it",                   "ht WeRM gZ gT" },
 };
 
 static const esp_mn_iface_t *s_multinet;
