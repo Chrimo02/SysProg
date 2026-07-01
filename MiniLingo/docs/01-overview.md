@@ -11,8 +11,10 @@ personality (system prompt), and its own text-to-speech voice.
 It is a **hybrid** assistant:
 
 - **Local (offline, instant):** wake-word detection and a fixed set of command
-  words — kitchen timer, volume control, mute, stop. These never touch the
-  network and respond in well under a second with pre-recorded audio.
+  words — kitchen timer, volume control, mute, stop, temperature. These never
+  touch the network for recognition; the display response is instant and offline.
+  If TTS is enabled, the temperature value is additionally spoken via the local
+  Piper server (requires Wi-Fi to reach the LAN server).
 - **Cloud (online):** anything that isn't a known command is treated as a
   free-form question. The recording is transcribed (Groq Whisper), answered by
   a language model (Cerebras), and — optionally — read back aloud
@@ -30,6 +32,8 @@ case). Those reasons are spelled out in
   - Kitchen timer: set 30 s / 1 / 5 / 10 / 15 / 30 min, cancel, ask time left.
   - Volume: up, down, set to 20/40/60/80/100 %, mute, unmute.
   - "stop": stops playback (and cancels a running timer when not speaking).
+  - Temperature: "temperature" / "what is the temperature" / "whats the current
+    temperature" / "how warm is it" — reads DS18B20 on GPIO 47.
 - **Free-form questions** → transcribed, answered by the LLM, shown as a chat
   bubble, and optionally spoken.
 - **Tool calling**: the LLM can set arbitrary timer/volume values that the
@@ -92,7 +96,7 @@ main/
   drivers/        display, touch, audio_in (mic), audio_out (amp)
   speech/         afe_pipeline, wake_word, recorder, commands, wav
   network/        wifi, provisioning, cloud, whisper, llm, tts, http_util
-  local/          timer, volume, canned_audio
+  local/          timer, volume, canned_audio, temperature
   ui/             ui, ui_chat, ui_status_bar, ui_mic_button, ui_tts_button, font
   debug/          wav_dump (Phase-3 UART audio dump, off by default)
   *_test.c        Phase-0 standalone hardware tests (mic/amp/display/touch)

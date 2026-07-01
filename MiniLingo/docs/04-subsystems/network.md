@@ -35,6 +35,11 @@ TTS) or (tool call → run locally). Key pieces:
 - **TTS toggle** — `s_tts_enabled` (atomic); `CONFIG_TTS_SPEAK_REPLIES` only
   seeds the initial value (default **on** since the local Piper server became
   primary). `cloud_set_tts_enabled()`/`cloud_tts_enabled()` for the button.
+- **`cloud_speak(text)`** — a speak-only job that skips Whisper/LLM entirely.
+  Called from `on_local_command` (afe_fetch_task) for the temperature command:
+  `text` is copied into the job struct, enqueued under the same `s_busy` gate,
+  and `network_task` calls `speak_reply(job.text)` directly. No TTS if
+  `!s_tts_enabled` or no Wi-Fi.
 
 ## whisper.c — Speech-to-Text (Groq)
 

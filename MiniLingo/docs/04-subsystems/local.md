@@ -78,13 +78,16 @@ regenerating them.
 
 ## Temperature sensor — temperature.c
 
-[temperature.c](../../main/local/temperature.c). DS18B20 on 1-Wire, GPIO 48,
+[temperature.c](../../main/local/temperature.c). DS18B20 on 1-Wire, GPIO 47
+(not 48 — that pin is the on-board RGB LED on the ESP32-S3-DevKitC v1.0),
 4.7 kΩ pull-up to 3V3. Driver is self-contained (no external component): GPIO bit-bang via
 `ets_delay_us` (IDF5 `rom/ets_sys.h`), with a Maxim DOW CRC check.
 
-- A 12-bit conversion takes ~750 ms, so the measurement runs in a periodic
-  `esp_timer` callback (one-shot rearmed every 10 s). The callback blocks with
-  `vTaskDelay(800 ms)` while the DS18B20 converts.
+- A 12-bit conversion takes ~750 ms. `temperature_init()` performs the **first
+  conversion synchronously** (blocking ~800 ms) so the value is valid
+  immediately after boot — no "Sensor not ready" on the first command.
+  Subsequent measurements run in a periodic `esp_timer` callback (one-shot
+  rearmed every 10 s); the callback also blocks with `vTaskDelay(800 ms)`.
 - `s_milli_celsius` (atomic int) holds the cached value; `s_valid` (atomic bool)
   becomes true after the first successful read and false on CRC/bus errors.
 - `temperature_get()` and `temperature_valid()` are safe from any task (used in
