@@ -34,6 +34,11 @@ from pathlib import Path
 # Script und Firmware (main/local/*.c) — bei Aenderungen beide Seiten
 # anpassen.
 PHRASES = {
+    # Kurzform (spart SPIFFS-Platz; die storage-Partition ist fast voll,
+    # der Bubble zeigt ohnehin "Timer set: N sec").
+    "tts_timer_set_5s.wav":    "Five seconds.",
+    "tts_timer_set_10s.wav":   "Ten seconds.",
+    "tts_timer_set_15s.wav":   "Fifteen seconds.",
     "tts_timer_set_30s.wav":   "Timer set: thirty seconds.",
     "tts_timer_set_60s.wav":   "Timer set: one minute.",
     "tts_timer_set_300s.wav":  "Timer set: five minutes.",

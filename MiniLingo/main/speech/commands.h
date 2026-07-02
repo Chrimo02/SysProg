@@ -37,6 +37,15 @@ typedef enum {
     CMD_CHARACTER_MYCROFT = 21, // "switch to mycroft"
     CMD_CHARACTER_ALEXA = 22,   // "switch to alexa"
     CMD_CHARACTER_JARVIS = 23,  // "switch to jarvis"
+    // Namensunabhaengiger, zuverlaessiger Wechsel: zykelt wie der Touch-
+    // Button. Haeufige englische Woerter -> MultiNet trifft sie gut, im
+    // Gegensatz zu den Eigennamen (v.a. "alexa").
+    CMD_CHARACTER_NEXT = 24,    // "next character" / "change assistant"
+    // Sekunden-Timer (2026-07-02): ohne diese matcht "N seconds" den
+    // gleichnamigen Minuten-Command (z.B. "fifteen seconds" -> 15 min).
+    CMD_TIMER_5SEC = 25,        // "set timer five seconds"
+    CMD_TIMER_10SEC = 26,       // "set timer ten seconds"
+    CMD_TIMER_15SEC = 27,       // "set timer fifteen seconds"
 } command_id_t;
 
 // Match-Callback. Laeuft im afe_fetch_task (Core 1) — keine LVGL-Calls,

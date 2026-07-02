@@ -7,6 +7,9 @@
 
 // Dateinamen in der SPIFFS-Partition "storage" — erzeugt von
 // scripts/generate_canned_tts.py (dort ist die Phrase-Tabelle).
+#define CANNED_TIMER_SET_5S    "tts_timer_set_5s.wav"
+#define CANNED_TIMER_SET_10S   "tts_timer_set_10s.wav"
+#define CANNED_TIMER_SET_15S   "tts_timer_set_15s.wav"
 #define CANNED_TIMER_SET_30S   "tts_timer_set_30s.wav"
 #define CANNED_TIMER_SET_60S   "tts_timer_set_60s.wav"
 #define CANNED_TIMER_SET_300S  "tts_timer_set_300s.wav"

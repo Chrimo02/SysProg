@@ -111,6 +111,9 @@ static atomic_int s_cmd_arg;
 // afe_fetch_task (on_local_command), angewandt im LVGL-Task
 // (apply_character). -1 = kein Event.
 static atomic_int s_character_event;
+// Namensunabhaengiger Cycle-Wechsel (Teil A): gesetzt im afe_fetch_task,
+// angewandt im LVGL-Task (naechster Charakter, wie der Touch-Button).
+static atomic_bool s_cycle_event;
 static atomic_bool s_timer_done_event;
 // Cloud-Pipeline (Phase 5-7): processing = Upload gestartet
 // (afe_fetch_task), transcript/reply/speaking/done/error = Fortschritt
@@ -208,10 +211,12 @@ static void on_wifi_clicked(void)
 // Idle-Text zieht ueber update_state_text() nach (liest s_character).
 static void apply_character(int idx)
 {
-    if (idx < 0 || idx >= (int)NUM_CHARACTERS) {
+    // Schon aktiv (oder ungueltig) -> echter No-Op: kein Bubble, kein
+    // Greeting, kein Wakeword-Reload. So bleibt ein Self-Trigger durch das
+    // eigene Wake Word (Name == aktiver Charakter) folgenlos.
+    if (idx < 0 || idx >= (int)NUM_CHARACTERS || idx == s_character) {
         return;
     }
-    bool same = (idx == s_character);
     s_character = idx;
     const character_t *c = &s_characters[idx];
 
@@ -219,15 +224,11 @@ static void apply_character(int idx)
     tts_set_voice(c->voice);
     tts_set_local_voice(c->local_voice);
     config_set_character(idx);
-    // Wakeword nur bei echtem Wechsel neu laden (destroy/create kostet
-    // ~100 ms Taubheit — bei gleichem Charakter unnoetig) und den neuen
-    // Charakter kurz begruessen lassen (in seiner Stimme — die ist oben
-    // schon gesetzt; cloud_speak nutzt sie im lokalen Piper). Die
-    // Begruessung kommt nur bei aktivem TTS, wie bei der Temperatur.
-    if (!same) {
-        afe_pipeline_request_wakeword(idx);
-        cloud_speak(c->greeting);
-    }
+    // Wakeword zur Laufzeit neu laden (~100 ms Taubheit) und den neuen
+    // Charakter kurz begruessen lassen — in seiner Stimme (oben gesetzt;
+    // cloud_speak nutzt sie im lokalen Piper, nur bei aktivem TTS).
+    afe_pipeline_request_wakeword(idx);
+    cloud_speak(c->greeting);
 
     char bubble[40];
     snprintf(bubble, sizeof(bubble), "Switched to %s", c->name);
@@ -375,6 +376,18 @@ static void on_local_command(command_id_t id, const char *phrase,
         kitchen_timer_start(30);
         canned_audio_play(CANNED_TIMER_SET_30S);
         break;
+    case CMD_TIMER_5SEC:
+        kitchen_timer_start(5);
+        canned_audio_play(CANNED_TIMER_SET_5S);
+        break;
+    case CMD_TIMER_10SEC:
+        kitchen_timer_start(10);
+        canned_audio_play(CANNED_TIMER_SET_10S);
+        break;
+    case CMD_TIMER_15SEC:
+        kitchen_timer_start(15);
+        canned_audio_play(CANNED_TIMER_SET_15S);
+        break;
     case CMD_TIMER_STOP:
     case CMD_TIMER_CANCEL:
         arg = kitchen_timer_cancel();
@@ -446,6 +459,10 @@ static void on_local_command(command_id_t id, const char *phrase,
         // Kein s_cmd_event: die Bubble kommt aus apply_character.
         atomic_store(&s_character_event, (int)id - CMD_CHARACTER_MYCROFT);
         return;
+    case CMD_CHARACTER_NEXT:
+        // Namensunabhaengig zum naechsten Charakter (LVGL kennt s_character).
+        atomic_store(&s_cycle_event, true);
+        return;
     }
 
     atomic_store(&s_cmd_arg, arg);
@@ -463,6 +480,9 @@ static void format_command_bubble(command_id_t id, int arg, char *text,
     case CMD_TIMER_15MIN:  snprintf(text, len, "Timer set: 15 min"); break;
     case CMD_TIMER_30MIN:  snprintf(text, len, "Timer set: 30 min"); break;
     case CMD_TIMER_30SEC:  snprintf(text, len, "Timer set: 30 sec"); break;
+    case CMD_TIMER_5SEC:   snprintf(text, len, "Timer set: 5 sec"); break;
+    case CMD_TIMER_10SEC:  snprintf(text, len, "Timer set: 10 sec"); break;
+    case CMD_TIMER_15SEC:  snprintf(text, len, "Timer set: 15 sec"); break;
     case CMD_TIMER_STOP:
     case CMD_TIMER_CANCEL:
         snprintf(text, len, arg ? "Timer cancelled" : "No timer running");
@@ -631,8 +651,9 @@ static void app_event_timer_cb(lv_timer_t *timer)
     // die Bar auf "Listening..." haengen (der Recorder ist da laengst
     // per recorder_abort() gestoppt, nur der UI-State fehlte).
     int chr = atomic_exchange(&s_character_event, -1);
-    if (chr >= 0) {
-        apply_character(chr);
+    bool cycle = atomic_exchange(&s_cycle_event, false);
+    if (chr >= 0 || cycle) {
+        apply_character(cycle ? (s_character + 1) % NUM_CHARACTERS : chr);
         s_listening = false;
         ui_mic_button_set_state(UI_MIC_LOCAL_RESPONSE);
         lv_timer_set_repeat_count(

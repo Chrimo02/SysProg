@@ -124,8 +124,9 @@ static void reconfigure_wakeword(int character_idx)
     }
 
     atomic_store(&s_feed_park, false);
-    ESP_LOGI(TAG, "wakenet reconfigured, free internal: %u B",
-             (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL));
+    ESP_LOGI(TAG, "wakenet reconfigured, free internal: %u B (largest block %u B)",
+             (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
+             (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL));
 }
 
 static void afe_feed_task(void *arg)
@@ -295,6 +296,9 @@ esp_err_t afe_pipeline_init(srmodel_list_t *models, int character_idx)
                                  NULL, 1);
     assert(ok == pdPASS);
 
-    ESP_LOGI(TAG, "AFE pipeline up, listening for wake word");
+    ESP_LOGI(TAG, "AFE pipeline up (character %d), free internal: %u B "
+                  "(largest block %u B)", character_idx,
+             (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
+             (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL));
     return ESP_OK;
 }

@@ -59,6 +59,18 @@ static float min_prob(command_id_t id)
     case CMD_VOLUME_UP:
     case CMD_VOLUME_DOWN:
         return 0.25f;
+    case CMD_CHARACTER_ALEXA:
+        // DIAGNOSE: 0 -> jeder Alexa-Treffer wird geloggt (Prob sichtbar),
+        // um die beste Aussprache-Variante zu finden. Danach wieder anheben.
+        return 0.0f;
+    case CMD_CHARACTER_MYCROFT:
+    case CMD_CHARACTER_JARVIS:
+    case CMD_CHARACTER_NEXT:
+        // Die drei "switch to X" teilen sich den Prefix; MultiNet raet den
+        // Namen dann mit sehr niedriger Prob (~0.04) und matcht faelschlich
+        // den ersten Charakter. 0.15 verwirft solche Low-Confidence-Treffer
+        // (echte liegen bei 0.25-0.32), der Rest laeuft normal weiter.
+        return 0.15f;
     default:
         // Timer-Phrasen: das globale 0.05 ist fuer sie schon knapp.
         return 0.0f;
@@ -84,6 +96,15 @@ static const struct {
     { CMD_TIMER_30MIN,  "thirty minute timer",       "vkDm MgNcT TiMk" },
     { CMD_TIMER_30SEC,  "set timer thirty seconds",  NULL },
     { CMD_TIMER_30SEC,  "thirty second timer",       NULL },
+    // Sekunden-Timer (2026-07-02): explizite Phoneme, finales "Z" von
+    // "seconds" weggelassen (analog MgNcTS->MgNcT bei "minutes"). Ohne
+    // diese matcht "N seconds" den Minuten-Command gleichen Namens.
+    { CMD_TIMER_5SEC,   "set timer five seconds",    "SfT TiMk FiV SfKcND" },
+    { CMD_TIMER_5SEC,   "five second timer",         "FiV SfKcND TiMk" },
+    { CMD_TIMER_10SEC,  "set timer ten seconds",     "SfT TiMk TfN SfKcND" },
+    { CMD_TIMER_10SEC,  "ten second timer",          "TfN SfKcND TiMk" },
+    { CMD_TIMER_15SEC,  "set timer fifteen seconds", "SfT TiMk FgFTmN SfKcND" },
+    { CMD_TIMER_15SEC,  "fifteen second timer",      "FgFTmN SfKcND TiMk" },
     { CMD_TIMER_STOP,   "stop timer",                NULL },
     { CMD_TIMER_CANCEL, "cancel timer",              NULL },
     { CMD_TIME_LEFT,    "how much time left",        NULL },
@@ -119,13 +140,32 @@ static const struct {
     { CMD_TEMPERATURE,  "whats the current temperature",    "WcTS jc KkcNT TfMPRcpk" },
     { CMD_TEMPERATURE,  "how warm is it",                   "ht WeRM gZ gT" },
     // Charakter-Wechsel (Phase B2): Phoneme per multinet_g2p.py. Der
-    // Wechsel laeuft ohne Reboot (AFE-Reconfigure, s. main.c/afe_pipeline).
+    // Standalone-Name diskriminiert am besten (kein geteilter Prefix wie
+    // bei "switch to X", wo MultiNet den Namen kaum trennt). Self-Trigger
+    // durch das eigene Wake Word ist unkritisch: das aktive Wakeword ==
+    // aktiver Charakter -> apply_character macht daraus einen No-Op.
+    // "alexa" mit zwei Aussprachen (Schwa-Anfang vs. klares 'a').
+    { CMD_CHARACTER_MYCROFT, "mycroft",           "MiKReFT" },
     { CMD_CHARACTER_MYCROFT, "switch to mycroft", "SWgp To MiKReFT" },
-    { CMD_CHARACTER_MYCROFT, "talk to mycroft",   "TeK To MiKReFT" },
+    // Alexa DIAGNOSE (2026-07-01): mehrere Aussprache-Spellings gleichzeitig,
+    // min_prob(ALEXA)=0, um im Log zu sehen, welche Variante bei gesprochenem
+    // "Alexa" (deutsch: volle Vokale statt US-Schwa) mit welcher Prob matcht.
+    // Schwache danach entfernen, min_prob wieder anheben.
+    { CMD_CHARACTER_ALEXA,   "alexa",             "cLfKSc" },   // US G2P (Schwa)
+    { CMD_CHARACTER_ALEXA,   "ahlexah",           "nLfKSn" },   // volle Vokale AA
+    { CMD_CHARACTER_ALEXA,   "alexah",            "cLfKSn" },   // Schwa+volles a
+    { CMD_CHARACTER_ALEXA,   "ah lexa",           "n LfKSn" },  // gesplittet
+    { CMD_CHARACTER_ALEXA,   "alexuh",            "aLcKso" },
     { CMD_CHARACTER_ALEXA,   "switch to alexa",   "SWgp To cLfKSc" },
-    { CMD_CHARACTER_ALEXA,   "talk to alexa",     "TeK To cLfKSc" },
+    { CMD_CHARACTER_ALEXA,   "switch to ahlexah", "SWgp To nLfKSn" },
+    { CMD_CHARACTER_JARVIS,  "jarvis",            "qnRVcS" },
     { CMD_CHARACTER_JARVIS,  "switch to jarvis",  "SWgp To qnRVcS" },
-    { CMD_CHARACTER_JARVIS,  "talk to jarvis",    "TeK To qnRVcS" },
+    // Zuverlaessiger namensunabhaengiger Cycle (Teil A): geht immer, auch
+    // wenn ein Eigenname nicht getroffen wird.
+    { CMD_CHARACTER_NEXT,    "next character",    "NfKST KfRgKTk" },
+    { CMD_CHARACTER_NEXT,    "change character",  "pdNq KfRgKTk" },
+    { CMD_CHARACTER_NEXT,    "next assistant",    "NfKST cSgSTcNT" },
+    { CMD_CHARACTER_NEXT,    "change assistant",  "pdNq cSgSTcNT" },
 };
 
 static const esp_mn_iface_t *s_multinet;
