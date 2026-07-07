@@ -37,6 +37,13 @@ static atomic_int  s_milli_celsius;  // [C] static-globale, atomare Ganzzahl | [
 static atomic_bool s_valid;          // [Logik] zeigt an, ob s_milli_celsius aktuell einen gültigen Messwert enthält
 static esp_timer_handle_t s_timer;   // [HW] opaker Handle auf den periodischen esp_timer
 
+// Schuetzt jeden einzelnen Reset-/Bit-Zeitschlitz vor Task-Preemption:
+// die Timings sind Mikrosekunden-genau (ets_delay_us Busy-Wait), und ein
+// Scheduler-Wechsel mittendrin (Audio/WiFi/UI-Tasks) verschiebt die Flanken
+// genug, um Presence-Erkennung oder CRC zu zerstoeren (User-Report
+// 2026-07-07: sporadisches "Sensor not ready", direkt danach wieder ok).
+static portMUX_TYPE s_ow_mux = portMUX_INITIALIZER_UNLOCKED;  // [HW] Spinlock-Handle für portENTER_CRITICAL/portEXIT_CRITICAL
+
 // --- 1-Wire low-level (GPIO Bit-Bang, critical sections per task) ---
 
 // Zieht die 1-Wire-Datenleitung aktiv auf Low, indem der Pin als Ausgang
@@ -65,12 +72,14 @@ static inline int ow_read_bit(void)
 // Gibt true zurueck, wenn ein Presence-Pulse erkannt wurde.
 static bool ow_reset(void)
 {
+    portENTER_CRITICAL(&s_ow_mux);  // [HW] Interrupts/Preemption auf diesem Core sperren, solange die Flanken zeitkritisch sind
     ow_low();                    // [HW] Reset-Puls: Leitung mindestens 480 µs low ziehen
     ets_delay_us(480);            // [HW] Busy-Wait exakt für die geforderte Reset-Low-Zeit (Datenblatt-Minimum)
     ow_release();                 // [HW] Leitung freigeben, Pullup zieht sie hoch
     ets_delay_us(70);              // [HW] Warten in das Presence-Detect-Fenster (15-60 µs bis Sensor antwortet)
     int presence = !ow_read_bit();  // [C] logisches NICHT | [HW] Sensor zieht bei Anwesenheit die Leitung kurz low -> Pegel 0 bedeutet "Presence erkannt"
     ets_delay_us(410);             // [HW] Rest des Presence-Fensters abwarten, bevor der nächste Schritt beginnt
+    portEXIT_CRITICAL(&s_ow_mux);   // [HW] Sperre wieder aufheben
     return presence;               // [Logik] true = mindestens ein Sensor am Bus hat geantwortet
 }
 
@@ -78,6 +87,7 @@ static bool ow_reset(void)
 // konformen Write-1/Write-0-Timings.
 static void ow_write_bit(int bit)
 {
+    portENTER_CRITICAL(&s_ow_mux);  // [HW] Zeitschlitz darf nicht durch Task-Wechsel unterbrochen werden
     ow_low();               // [HW] jeder Schreib-Zeitschlitz beginnt mit einer Low-Flanke
     if (bit) {              // [C] Bedingung auf Wahrheitswert des Parameters | [Logik] Fallunterscheidung Write-1 vs. Write-0
         ets_delay_us(6);      // [HW] Write-1: nur kurz low (innerhalb 1-15 µs)
@@ -88,18 +98,21 @@ static void ow_write_bit(int bit)
         ow_release();         // [HW] danach freigeben
         ets_delay_us(10);     // [HW] kurze Erholzeit vor dem nächsten Slot
     }
+    portEXIT_CRITICAL(&s_ow_mux);   // [HW] Sperre wieder aufheben
 }
 
 // Liest ein einzelnes Bit vom Bus: initiiert einen Read-Zeitschlitz und
 // tastet die Leitung innerhalb des vom Sensor vorgegebenen Fensters ab.
 static int ow_read_bit_slot(void)
 {
+    portENTER_CRITICAL(&s_ow_mux);  // [HW] Sample-Fenster (15 µs) ist zu knapp für eine Preemption dazwischen
     ow_low();                 // [HW] Read-Slot beginnt ebenfalls mit kurzer Low-Flanke (Master initiiert den Slot)
     ets_delay_us(6);           // [HW] Mindest-Low-Zeit (1-15 µs), danach übernimmt der Sensor ggf. die Leitung
     ow_release();              // [HW] Leitung freigeben, Sensor kann sie halten (Bit 0) oder Pullup zieht hoch (Bit 1)
     ets_delay_us(9);            // [HW] Warten, bis der Pegel stabil ist, aber innerhalb der 15-µs-Sample-Frist
     int bit = ow_read_bit();    // [HW] eigentliches Abtasten des Bits
     ets_delay_us(55);           // [HW] Rest des Zeitschlitzes abwarten (Gesamtslot >= 60 µs)
+    portEXIT_CRITICAL(&s_ow_mux);   // [HW] Sperre wieder aufheben
     return bit;                 // [Logik] gelesenes Bit an den Aufrufer zurückgeben
 }
 

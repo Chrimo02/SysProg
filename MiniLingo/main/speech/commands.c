@@ -74,6 +74,13 @@ static float min_prob(command_id_t id)                          // [C] static Hi
         // den ersten Charakter. 0.15 verwirft solche Low-Confidence-Treffer
         // (echte liegen bei 0.25-0.32), der Rest laeuft normal weiter.
         return 0.15f;                                            // [Logik] mittlere Schwelle gegen Prefix-Verwechslung bei "switch to X"
+    case CMD_TEMPERATURE:
+        // User-Report 2026-07-07: freie Saetze, die mit "te..." beginnen
+        // ("tell me...", German "Wie..."), matchten CMD_TEMPERATURE schon
+        // beim globalen 0.03-Threshold (fiel bisher in den default-Zweig,
+        // also 0.0 Zusatzfilter). 0.2 verwirft diese Low-Confidence-Treffer;
+        // ggf. anhand echter Match-Probs im Log nachziehen.
+        return 0.2f;                                             // [Logik] Schwelle gegen Fehltrigger durch aehnlich klingende Satzanfaenge
     default:
         // Timer-Phrasen: das globale 0.05 ist fuer sie schon knapp.
         return 0.0f;                                             // [Logik] keine zusätzliche Filterung, globaler Threshold reicht schon knapp
