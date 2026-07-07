@@ -6,8 +6,13 @@
 // start/cancel laufen im afe_fetch_task (Command-Dispatch), der
 // Done-Callback im esp_timer-Task — dort keine LVGL-Calls, nur
 // Flags/Queues (gleiche Regel wie recorder_done_cb_t).
-typedef void (*kitchen_timer_done_cb_t)(void);
+// Funktionszeiger-Typ für den Callback, der beim Ablauf des Timers
+// aufgerufen wird — läuft im esp_timer-Task, darf daher nur
+// nebenläufigkeitssichere/kurze Dinge tun (kein LVGL direkt).
+typedef void (*kitchen_timer_done_cb_t)(void);  // [C] Funktionszeiger-Typdefinition: Signatur void(void) für Callback-Registrierung
 
+// Initialisiert den Kitchen-Timer (legt den esp_timer an) und
+// registriert den Callback, der beim Ablauf ausgelöst wird.
 void kitchen_timer_init(kitchen_timer_done_cb_t done_cb);
 
 // Startet (bzw. ersetzt) den Timer. Spielt KEINE Bestaetigung ab —
