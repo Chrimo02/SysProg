@@ -21,7 +21,7 @@ static const char *TAG = "audio_out";
 
 static i2s_chan_handle_t s_tx_chan;
 static uint32_t s_rate;
-static atomic_int_least32_t s_gain_q15 = AUDIO_OUT_GAIN_UNITY;
+static atomic_int_least32_t s_gain_q15 = AUDIO_OUT_GAIN_UNITY; //"int_least32_t" -> int mit min 32-bit
 
 esp_err_t audio_out_init(void)
 {

@@ -54,7 +54,7 @@ static const char *s_persona = DEFAULT_PERSONA;
 
 void llm_set_system_prompt(const char *persona)
 {
-    s_persona = persona ? persona : DEFAULT_PERSONA;
+    s_persona = persona ? persona : DEFAULT_PERSONA; // wenn übergebene "persona" NULL ist, wird der Default-Prompt verwendet
 }
 
 // Antwortlaenge steuert primaer der System-Prompt (<3 Saetze);

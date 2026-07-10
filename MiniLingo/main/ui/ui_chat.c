@@ -41,7 +41,7 @@ static void add_bubble(const char *text, uint32_t bg_color, bool right_aligned)
 {
     // Volle-Breite-Zeile als Traeger, damit die Bubble darin
     // links/rechts ausgerichtet werden kann (Flex kennt kein align-self).
-    lv_obj_t *row = lv_obj_create(s_chat);
+    lv_obj_t *row = lv_obj_create(s_chat); //
     lv_obj_set_size(row, lv_pct(100), LV_SIZE_CONTENT);
     lv_obj_set_style_bg_opa(row, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(row, 0, 0);

@@ -20,8 +20,10 @@ typedef enum {
 // Laeuft im network_task (Core 0, Prio 3) — keine LVGL-Calls, nur
 // Flags/Queues setzen (gleiche Regel wie recorder_done_cb_t). text ist
 // nur fuer die Dauer des Callbacks gueltig.
+
+// "(*cloud_event_cb_t)" -> pointer auf eine Funktion, die als Callback für Cloud-Ereignisse dient
 typedef void (*cloud_event_cb_t)(cloud_event_type_t type,
-                                 const char *text);
+                                 const char *text); 
 
 // Startet den network_task (Spec Section 8: Prio 3, Core 0, 16 KB).
 esp_err_t cloud_init(cloud_event_cb_t cb);

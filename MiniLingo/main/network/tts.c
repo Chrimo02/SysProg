@@ -66,11 +66,13 @@ esp_err_t tts_init(void)
     return ESP_OK;
 }
 
+//setzt die zu benutzende Stimme für Gemini-TTS (wird nur als Fallback genutzt, wenn der lokale Piper-Server nicht antwortet) 
 void tts_set_voice(const char *voice)
 {
     s_voice = voice;
 }
 
+//setzt die zu benutzende Stimme für den lokalen Piper-Server (wird primär genutzt, Gemini nur als Fallback)
 void tts_set_local_voice(const char *voice)
 {
     s_local_voice = voice;

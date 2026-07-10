@@ -33,8 +33,10 @@ static const char *TAG = "cloud";
 // speak_only = true: kein Whisper/LLM, nur speak_reply(text).
 // text wird bei cloud_speak() per Wert reinkopiert.
 #define SPEAK_TEXT_MAX 80
+
+// cloud_job_t ist ein Job-Paket, das an die Cloud gesendet wird
 typedef struct {
-    const uint8_t *wav;
+    const uint8_t *wav; 
     size_t bytes;
     bool speak_only;
     char text[SPEAK_TEXT_MAX];
@@ -196,7 +198,7 @@ static void network_task(void *arg)
     }
 }
 
-esp_err_t cloud_init(cloud_event_cb_t cb)
+esp_err_t cloud_init(cloud_event_cb_t cb) //cb = Pointer auf die Funktion on_cloud_event aus main.c, die aufgerufen wird, wenn ein Cloud-Event eintritt (zB Transkript, Antwort, Fehlerbeschreibung)
 {
     esp_err_t err = chat_history_init();
     if (err != ESP_OK) {
@@ -251,11 +253,12 @@ bool cloud_tts_enabled(void)
 
 void cloud_speak(const char *text)
 {
+    // s_busy zeigt ob Pipeline gerade eine Anfrage bearbeitet. Wenn ja, wird die Anfrage verworfen, um die Pipeline nicht zu überlasten.
     if (atomic_exchange(&s_busy, true)) {
         ESP_LOGW(TAG, "cloud_speak: pipeline busy, dropping");
         return;
     }
-    cloud_job_t job = { .speak_only = true };
-    snprintf(job.text, sizeof(job.text), "%s", text);
-    xQueueSend(s_queue, &job, 0);
+    cloud_job_t job = { .speak_only = true }; //erstelle neuen job -> nur TTS weil text übergeben wird
+    snprintf(job.text, sizeof(job.text), "%s", text); // übergebenen text in den job kopieren -> wird auf maximal 80 Zeichen gekürzt
+    xQueueSend(s_queue, &job, 0); // Job in die Queue einfügen -> wird dann von network_task abgearbeitet
 }

@@ -12,7 +12,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
-#include "esp_afe_sr_models.h"
+#include "esp_afe_sr_models.h" //afe = audio front end, sr = speech recognition // transitive header, includes all the other headers in esp_afe_sr_iface.h, esp_afe_sr_models.h, esp_afe_sr_types.h, esp_afe_sr_iface_op.h
 #include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "esp_wn_models.h"
@@ -51,7 +51,7 @@ void afe_pipeline_request_listening(void)
 
 void afe_pipeline_request_wakeword(int character_idx)
 {
-    atomic_store(&s_reconfig_char, character_idx);
+    atomic_store(&s_reconfig_char, character_idx); //speichert neuen character_idx in atomic_int -> wird von afe_fetch_task() abgeholt zur Wakeword-Rekonfiguration
 }
 
 // AFE mit dem Wakeword des Charakters bauen (aus init + reconfigure).
@@ -59,29 +59,30 @@ void afe_pipeline_request_wakeword(int character_idx)
 static esp_err_t create_afe(int character_idx)
 {
     afe_config_t *cfg =
-        afe_config_init("M", s_models, AFE_TYPE_SR, AFE_MODE_LOW_COST);
+        afe_config_init("M", s_models, AFE_TYPE_SR, AFE_MODE_LOW_COST); //aus afe_config_init() wird ein Pointer auf ein neues afe_config_t Struct zurückgegeben, das die AFE-Konfiguration für den angegebenen Charakter enthält. "M" steht für Mono-Audioeingang, s_models ist die Liste der verfügbaren Modelle, AFE_TYPE_SR gibt an, dass es sich um eine Spracherkennungsszene handelt, und AFE_MODE_LOW_COST bedeutet, dass der AFE im Low-Cost-Modus betrieben wird.
     if (!cfg) {
         ESP_LOGE(TAG, "afe_config_init failed");
         return ESP_FAIL;
     }
-    cfg->aec_init = false;
-    cfg->wakenet_init = true;
-    cfg->vad_init = true;
-    cfg->afe_perferred_core = 1;
-    cfg->afe_perferred_priority = 5;
+    cfg->aec_init = false; // Acoustic Echo Cancellation deaktiviert
+    cfg->wakenet_init = true; //WakeNet(=Wakeword-Detection) aktivieren
+    cfg->vad_init = true; // Voice Activity Detection aktivieren
+    cfg->afe_perferred_core = 1; // AFE-Task auf Core 1 (wie Spec Section 8)
+    cfg->afe_perferred_priority = 5; // AFE-Task auf Prio 5 (wie Spec Section 8)
 
-    const char *kw = (character_idx == 1)   ? "alexa"
+    const char *kw = (character_idx == 1)   ? "alexa" // kw = keyword (bzw wakeword)
                      : (character_idx == 2) ? "jarvis"
                                             : "mycroft";
-    char *wn = esp_srmodel_filter(s_models, ESP_WN_PREFIX, kw);
+
+    char *wn = esp_srmodel_filter(s_models, ESP_WN_PREFIX, kw); // esp_srmodel_filter() sucht in der Liste der Modelle (s_models) nach einem Modell, das dem angegebenen Wakeword (kw) entspricht. ESP_WN_PREFIX ist ein Präfix, das angibt, dass es sich um ein WakeNet-Modell handelt. Die Funktion gibt den Namen des gefundenen Modells zurück oder NULL, wenn kein passendes Modell gefunden wurde.
     cfg->wakenet_model_name = wn;
-    cfg->wakenet_model_name_2 = NULL;
+    cfg->wakenet_model_name_2 = NULL; // kein zweites Wakeword-Modell, nur eins pro Charakter
     ESP_LOGI(TAG, "wakenet model: %s (character %d)",
              wn ? wn : "(none)", character_idx);
 
-    s_afe_handle = esp_afe_handle_from_config(cfg);
-    s_afe_data = s_afe_handle->create_from_config(cfg);
-    afe_config_free(cfg);
+    s_afe_handle = esp_afe_handle_from_config(cfg); // AFE Interface-Handle aus der Konfiguration erstellen. esp_afe_handle_from_config() gibt einen Pointer auf eine Struktur zurück, die die AFE-Schnittstelle (Methoden und Funktionen) für die angegebene Konfiguration enthält.
+    s_afe_data = s_afe_handle->create_from_config(cfg); // AFE-Daten aus der Konfiguration erstellen. create_from_config() initialisiert die AFE-Pipeline basierend auf der Konfiguration und gibt einen Pointer auf die AFE-Datenstruktur zurück, die für die Verarbeitung von Audioeingaben verwendet wird.
+    afe_config_free(cfg); // Konfiguration freigeben, da sie nicht mehr benötigt wird. afe_config_free() gibt den Speicher frei, der für die AFE-Konfiguration reserviert wurde.
     if (!s_afe_data) {
         ESP_LOGE(TAG, "AFE create_from_config failed");
         return ESP_FAIL;
@@ -89,11 +90,11 @@ static esp_err_t create_afe(int character_idx)
 
     // Kconfig-Threshold (0-100) auf WakeNet-Range 0.0-1.0 mappen;
     // Index 1 = erstes Wake Word. 0 = Model-Default belassen.
-#if CONFIG_WAKE_WORD_THRESHOLD > 0
+#if CONFIG_WAKE_WORD_THRESHOLD > 0 // CONFIG_WAKE_WORD_THRESHOLD kommt aus sdkconfig.h
     s_afe_handle->set_wakenet_threshold(s_afe_data, 1,
-                                        CONFIG_WAKE_WORD_THRESHOLD / 100.0f);
+                                        CONFIG_WAKE_WORD_THRESHOLD / 100.0f); // set_wakenet_threshold() setzt den Erkennungs-Threshold für das erste Wakeword-Modell (Index 1) auf den in Kconfig angegebenen Wert (CONFIG_WAKE_WORD_THRESHOLD), der von 0 bis 100 reicht. Der Wert wird auf einen Bereich von 0.0 bis 1.0 skaliert, indem er durch 100 geteilt wird.
 #endif
-    s_character_idx = character_idx;
+    s_character_idx = character_idx; // s_character_idx auf den aktuellen Charakter-Index setzen, um zu wissen, welches Wakeword gerade aktiv ist.
     return ESP_OK;
 }
 
@@ -105,25 +106,25 @@ static void reconfigure_wakeword(int character_idx)
     if (character_idx == s_character_idx) {
         return;  // schon aktiv
     }
-    int prev = s_character_idx;
+    int prev = s_character_idx; // vorheriger Charakter, der gerade aktiv war (wird nur für Logging und Wiederherstellung im Fehlerfall genutzt)
     ESP_LOGI(TAG, "reconfigure wakenet: character %d -> %d",
              prev, character_idx);
 
     // Feed-Task parken und warten, bis er wirklich aus feed() raus ist.
-    atomic_store(&s_feed_park, true);
-    while (!atomic_load(&s_feed_parked)) {
+    atomic_store(&s_feed_park, true); // signalisiert dem feed-Task, dass er parken soll
+    while (!atomic_load(&s_feed_parked)) { // feed-Task hat noch nicht geparkt, also warten
         vTaskDelay(pdMS_TO_TICKS(5));
     }
 
-    s_afe_handle->destroy(s_afe_data);
-    s_afe_data = NULL;
-    esp_err_t err = create_afe(character_idx);
+    s_afe_handle->destroy(s_afe_data); // destroy() aufrufen, um die alte AFE-Pipeline zu zerstören
+    s_afe_data = NULL; //Pointer auf die alten AFE-Daten auf NULL setzen, um sicherzustellen, dass kein Zugriff mehr erfolgt
+    esp_err_t err = create_afe(character_idx); // neue AFE-Pipeline mit dem neuen Charakter-Index erstellen. create_afe() initialisiert die AFE-Pipeline mit dem neuen Wakeword und gibt einen Fehlercode zurück, wenn etwas schiefgeht.
     if (err != ESP_OK && prev >= 0) {
         ESP_LOGE(TAG, "reconfigure failed, restoring character %d", prev);
         create_afe(prev);  // best effort: alte Pipeline zurueckholen
     }
 
-    atomic_store(&s_feed_park, false);
+    atomic_store(&s_feed_park, false); // signalisiert dem feed-Task, dass er wieder arbeiten kann
     ESP_LOGI(TAG, "wakenet reconfigured, free internal: %u B (largest block %u B)",
              (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
              (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL));
@@ -190,8 +191,9 @@ static void afe_fetch_task(void *arg)
         // Charakter-Wechsel (Phase B2): Wakeword hier umstellen, zwischen
         // zwei fetch-Calls — nie mitten in fetch_with_delay, und das
         // vorige res ist ausgewertet (kein Use-after-free auf res->data).
-        int reconfig = atomic_exchange(&s_reconfig_char, -1);
-        if (reconfig >= 0) {
+        int reconfig = atomic_exchange(&s_reconfig_char, -1); //atomic_exchange zieht aktuell gesetzten wert aus s_reconfig_char und setzt ihn auf -1 (= keine Reconfigure-anforderung)
+        // reconfigure_wakeword() nur callen wenn wirklich s_reconfig_char vorher in afe_pipeline_request_wakeword gesetzt wurde
+        if (reconfig >= 0) { 
             reconfigure_wakeword(reconfig);
         }
 
