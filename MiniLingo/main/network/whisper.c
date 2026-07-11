@@ -30,6 +30,11 @@ static const char *TAG = "whisper";
 
 #define TIMEOUT_MS    20000
 
+// Multipart-Prologue. Der "language"-Slot (%s) ist optional: ist eine
+// Sprache konfiguriert, wird LANG_PART_FMT eingesetzt und zwingt Whisper in
+// diese Sprache; ist sie leer, bleibt der Slot leer und Whisper erkennt die
+// gesprochene Sprache selbst (Auto-Detect — noetig fuer gemischt EN/DE, sonst
+// wird z.B. Englisch als schlechtes Deutsch transkribiert).
 static const char *PART_FMT =
     "--" BOUNDARY "\r\n"
     "Content-Disposition: form-data; name=\"model\"\r\n\r\n"
@@ -37,12 +42,16 @@ static const char *PART_FMT =
     "--" BOUNDARY "\r\n"
     "Content-Disposition: form-data; name=\"response_format\"\r\n\r\n"
     "json\r\n"
-    "--" BOUNDARY "\r\n"
-    "Content-Disposition: form-data; name=\"language\"\r\n\r\n"
-    "%s\r\n"
+    "%s"
     "--" BOUNDARY "\r\n"
     "Content-Disposition: form-data; name=\"file\"; filename=\"audio.wav\"\r\n"
     "Content-Type: audio/wav\r\n\r\n";
+
+// Optionaler Sprach-Part, nur eingesetzt wenn eine Sprache konfiguriert ist.
+static const char *LANG_PART_FMT =
+    "--" BOUNDARY "\r\n"
+    "Content-Disposition: form-data; name=\"language\"\r\n\r\n"
+    "%s\r\n";
 
 static const char *EPILOGUE = "\r\n--" BOUNDARY "--\r\n";
 
@@ -84,9 +93,18 @@ static esp_err_t transcribe_once(const uint8_t *wav, size_t wav_bytes,
         return ESP_ERR_INVALID_STATE;
     }
 
+    // Sprach-Feld nur senden, wenn konfiguriert; leer -> Whisper Auto-Detect.
+    const char *lang = config_whisper_language();
+    char lang_part[128] = "";
+    if (lang && lang[0] != '\0') {
+        int n = snprintf(lang_part, sizeof(lang_part), LANG_PART_FMT, lang);
+        if (n <= 0 || n >= (int)sizeof(lang_part)) {
+            return ESP_FAIL;
+        }
+    }
+
     char prologue[512];
-    int prologue_len = snprintf(prologue, sizeof(prologue), PART_FMT,
-                                config_whisper_language());
+    int prologue_len = snprintf(prologue, sizeof(prologue), PART_FMT, lang_part);
     if (prologue_len <= 0 || prologue_len >= (int)sizeof(prologue)) {
         return ESP_FAIL;
     }
