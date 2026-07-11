@@ -129,7 +129,6 @@ esp_err_t touch_init(void)
 
 // Gibt Handle auf das LVGL Input-Device (Touchscreen) zurück (andere Module brauchen das für Input-Handling)
 lv_indev_t *touch_get_lv_indev(void)
-lv_indev_t *touch_get_lv_indev(void)
 {
     return s_indev;
 }

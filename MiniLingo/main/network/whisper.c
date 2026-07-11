@@ -7,6 +7,7 @@
 
 #include "cJSON.h"
 #include "esp_crt_bundle.h"
+#include "esp_heap_caps.h"
 #include "esp_http_client.h"
 #include "esp_log.h"
 #include "sdkconfig.h"
@@ -106,6 +107,14 @@ static esp_err_t transcribe_once(const uint8_t *wav, size_t wav_bytes,
     esp_http_client_set_header(client, "Authorization", auth);
     esp_http_client_set_header(client, "Content-Type",
                                "multipart/form-data; boundary=" BOUNDARY);
+
+    // Interner Heap vor dem TLS-Upload: die Hardware-AES-DMA braucht
+    // internen (DMA-faehigen) RAM — bei zu wenig freiem Block scheitert
+    // "esp-aes: Failed to allocate memory". largest_free_block zeigt die
+    // Fragmentierung.
+    ESP_LOGI(TAG, "pre-upload internal heap: %u B free (largest block %u B)",
+             (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
+             (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL));
 
     size_t content_len =
         (size_t)prologue_len + wav_bytes + strlen(EPILOGUE);

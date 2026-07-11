@@ -278,24 +278,24 @@ esp_err_t afe_pipeline_init(srmodel_list_t *models, int character_idx)
         return ESP_FAIL;
     }
     s_models = models;
-    atomic_store(&s_reconfig_char, -1);
+    atomic_store(&s_reconfig_char, -1); // character reconfigure request initial auf -1 (keine Anforderung)
 
     // "M" = 1 Mic-Kanal, 16 kHz, VAD im AFE_TYPE_SR-Default, kein AEC.
     // Nur das EINE Wakeword des aktiven Charakters laden (0=Mycroft,
     // 1=Alexa, 2=Jarvis). Drei Wakenets gleichzeitig sprengen den
     // internen RAM; der Wechsel tauscht das Modell zur Laufzeit
     // (afe_pipeline_request_wakeword -> reconfigure_wakeword).
-    esp_err_t err = create_afe(character_idx);
+    esp_err_t err = create_afe(character_idx); // create_afe() initialisiert die AFE-Pipeline mit dem angegebenen Charakter-Index und gibt einen Fehlercode zurück, wenn etwas schiefgeht.
     if (err != ESP_OK) {
         return err;
     }
 
-    BaseType_t ok;
-    ok = xTaskCreatePinnedToCore(afe_feed_task, "afe_feed", 4096, NULL, 5,
-                                 NULL, 1);
+    BaseType_t ok; // Rückgabewert der Taskerstellung
+
+    // Parameter-reihenfolge für xTaskCreatePinnedToCore: Task-Funktion, Name, Stackgröße, Parameter, Priorität, Task-Handle (optional), Core-ID
+    ok = xTaskCreatePinnedToCore(afe_feed_task, "afe_feed", 4096, NULL, 5, NULL, 1); // Task für das Einlesen von Audio-Daten und Weitergabe an die AFE-Pipeline erstellen. Die Task wird auf Core 1 mit einer Priorität von 5 gestartet. Stackgröße: 4096 Bytes.
     assert(ok == pdPASS);
-    ok = xTaskCreatePinnedToCore(afe_fetch_task, "afe_fetch", 8192, NULL, 5,
-                                 NULL, 1);
+    ok = xTaskCreatePinnedToCore(afe_fetch_task, "afe_fetch", 8192, NULL, 5, NULL, 1); // Task für das Abrufen von AFE-Ergebnissen und Weitergabe an die MultiNet- und Recorder-Module erstellen. Die Task wird auf Core 1 mit einer Priorität von 5 gestartet. Stackgröße: 8192 Bytes.
     assert(ok == pdPASS);
 
     ESP_LOGI(TAG, "AFE pipeline up (character %d), free internal: %u B "

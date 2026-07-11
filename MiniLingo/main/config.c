@@ -76,6 +76,7 @@ esp_err_t config_init(void)
     // for-schleife um alle Systemkonfigurationseinträge aus dem NVS zu laden, damit sie im RAM verfügbar sind für andere Tasks.
     for (size_t i = 0; i < sizeof(s_entries) / sizeof(s_entries[0]); i++) {
         cfg_entry_t *e = &s_entries[i]; // e = pointer auf aktuelles cfg_entry_t struct -> enthält key, buf, size und fallback für den aktuellen Eintrag
+        size_t len = e->size; // vor dem Aufruf = Puffergroesse; nvs_get_str schreibt hier die tatsaechlich gelesene Laenge zurueck
         if (have_nvs &&
             nvs_get_str(nvs, e->key, e->buf, &len) == ESP_OK) {
             continue;  // aus NVS geladen

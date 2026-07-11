@@ -29,9 +29,14 @@ static const char *TAG = "tts";
 // Lokaler Piper-TTS-Server (primaere Quelle, kein TLS): liefert rohe
 // WAV-Bytes (PCM, mono, 16-bit). Bei Fehler/Timeout faellt tts_synthesize
 // auf Gemini zurueck.
-#define TTS_LOCAL_URL        "http://192.168.3.143:5050/tts"
+
+#define TTS_LOCAL_URL        "http://172.20.10.4:5050/tts"
+//#define TTS_LOCAL_URL        "http://192.168.3.143:5050/tts"
 #define TTS_LOCAL_VOICE      "jarvis"   // Fallback-Default, per-character ueberschreibbar
-#define TTS_LOCAL_TIMEOUT_MS 3000       // danach Fallback auf Gemini
+#define TTS_LOCAL_TIMEOUT_MS 15000      // danach Fallback auf Gemini; hoch genug,
+                                        // dass Piper auch lange Antworten (mehrere
+                                        // Saetze) fertig synthetisiert, bevor der
+                                        // Socket-Read abbricht
 #define WAV_HEADER_BYTES     44         // kanonischer RIFF/WAVE-Header
 #define LANG_DETECT_MAX      512        // genug Text fuer die Stopwort-Heuristik
 
