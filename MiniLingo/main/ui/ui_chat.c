@@ -1,5 +1,9 @@
 // Chat-Container mit Bubble-Helpern (Spec Section 4):
 // User rechts/blau, Assistant links/grau, Local-Response links/gruen.
+#include <stdint.h>
+#include <stdlib.h>
+#include <string.h>
+
 #include "ui.h"
 #include "ui_internal.h"
 
@@ -21,6 +25,54 @@ LV_FONT_DECLARE(font_montserrat_14_latin1);
 #define COLOR_LOCAL_BG     0x2D5A3D
 
 static lv_obj_t *s_chat;
+
+// Das LLM gibt gern Unicode-Interpunktion aus, die der Bubble-Font NICHT
+// abdeckt (er hat nur ASCII, Latin-1, 0x2013-14, 0x2018-1E, 0x2026, 0x20AC) —
+// solche Zeichen zeigt LVGL als Platzhalter-Box. Wir mappen die haeufigsten
+// fehlenden auf vorhandene Aequivalente; abgedeckte und unbekannte Zeichen
+// bleiben unveraendert. Jede Ersetzung ist nie laenger als das Original,
+// daher reicht strlen+1. Rueckgabe per free(); NULL bei OOM (Caller nutzt
+// dann den Originaltext).
+static char *sanitize_for_font(const char *src)
+{
+    char *dst = malloc(strlen(src) + 1);
+    if (!dst) {
+        return NULL;
+    }
+    size_t di = 0;
+    for (const unsigned char *p = (const unsigned char *)src; *p;) {
+        // 3-Byte-UTF-8 (0xE2 ..): deckt den Grossteil der Interpunktion ab.
+        if (p[0] == 0xE2 && p[1] && p[2]) {
+            uint32_t cp = ((uint32_t)(p[0] & 0x0F) << 12) |
+                          ((uint32_t)(p[1] & 0x3F) << 6) |
+                          ((uint32_t)(p[2] & 0x3F));
+            const char *rep = NULL;
+            switch (cp) {
+            case 0x2011: case 0x2012:                     // NB-Hyphen, Figure-Dash
+            case 0x2022: case 0x2043: rep = "-";  break;  // Bullet, Hyphen-Bullet
+            case 0x2192: rep = "->"; break;               // Pfeil rechts
+            case 0x2190: rep = "<-"; break;               // Pfeil links
+            case 0x2032: rep = "'";  break;               // Prime
+            case 0x2033: rep = "\""; break;               // Double-Prime
+            }
+            if (rep) {
+                while (*rep) {
+                    dst[di++] = *rep++;
+                }
+                p += 3;
+                continue;
+            }
+            // Nicht gemappt -> 3 Bytes unveraendert (z.B. abgedeckt: – … €).
+            dst[di++] = *p++;
+            dst[di++] = *p++;
+            dst[di++] = *p++;
+            continue;
+        }
+        dst[di++] = *p++;
+    }
+    dst[di] = '\0';
+    return dst;
+}
 
 void ui_chat_create(lv_obj_t *parent)
 {
@@ -59,7 +111,11 @@ static void add_bubble(const char *text, uint32_t bg_color, bool right_aligned)
     lv_obj_align(bubble, right_aligned ? LV_ALIGN_RIGHT_MID : LV_ALIGN_LEFT_MID, 0, 0);
 
     lv_obj_t *label = lv_label_create(bubble);
-    lv_label_set_text(label, text);
+    // Nicht-abgedeckte Unicode-Zeichen ersetzen; lv_label_set_text kopiert
+    // den String intern, daher kann clean danach freigegeben werden.
+    char *clean = sanitize_for_font(text);
+    lv_label_set_text(label, clean ? clean : text);
+    free(clean);
     lv_label_set_long_mode(label, LV_LABEL_LONG_WRAP);
     lv_obj_set_width(label, LV_SIZE_CONTENT);
     lv_obj_set_style_max_width(label, BUBBLE_MAX_W - 2 * BUBBLE_PAD, 0);
